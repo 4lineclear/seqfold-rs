@@ -5,8 +5,6 @@ use crate::{
     util::{round1, round2},
 };
 
-// NOTE: this is 100$ broken
-
 /// A single structure with a free energy, description, and inward children.
 #[derive(Debug, Clone)]
 pub struct Value {
@@ -61,14 +59,15 @@ pub type Values = Vec<Vec<Value>>;
 /// are ignored in V(i,j). This is based on an approach described in:
 /// Mathews, Sabina, Zuker and Turner, 1999
 /// https://www.ncbi.nlm.nih.gov/pubmed/10329189
-/// Args:
-///     seq: The sequence to fold
 ///
-/// Keyword Args:
-///     temp: The temperature the fold takes place in, in Celcius
+/// # Args
 ///
-/// Returns:
-///     List[Struct]: A list of structures. Stacks, bulges, hairpins, etc.
+/// - seq: The sequence to fold
+/// - temp: The temperature the fold takes place in, in Celcius
+///
+/// # Returns
+///
+/// - List[Struct]: A list of structures. Stacks, bulges, hairpins, etc.
 pub fn fold(seq: &[u8], temp: Option<f64>) -> Vec<Value> {
     let (v_cache, w_cache) = cache(seq, temp);
     let n = seq.len();
@@ -79,14 +78,14 @@ pub fn fold(seq: &[u8], temp: Option<f64>) -> Vec<Value> {
 
 /// Fold the sequence and return just the delta G of the structure
 ///
-/// Args:
-///     seq: The sequence to fold
+/// # Args
 ///
-/// Keyword Args:
-///     temp: The temperature to fold at
+/// - seq: The sequence to fold
+/// - temp: The temperature to fold at
 ///
-/// Returns:
-///     float: The minimum free energy of the folded sequence
+/// # Returns:
+///
+/// - float: The minimum free energy of the folded sequence
 pub fn dg(seq: &[u8], temp: Option<f64>) -> f64 {
     let values: Vec<Value> = fold(seq, temp);
     let dg_sum = values.iter().map(|v| v.e).sum();
@@ -95,14 +94,14 @@ pub fn dg(seq: &[u8], temp: Option<f64>) -> f64 {
 
 /// Fold a nucleic acid sequence and return the estimated dg of each (i,j) pairing.
 ///
-/// Args:
-///     seq: The nucleic acid sequence to fold
+/// # Args
 ///
-/// Keyword Args:
-///     temp: The temperature to fold at
+/// - seq: The nucleic acid sequence to fold
+/// - temp: The temperature to fold at
 ///
-/// Returns:
-///     Cache: A 2D matrix where each (i, j) pairing corresponds to the
+/// # Returns
+///
+/// - Cache: A 2D matrix where each (i, j) pairing corresponds to the
 ///         minimum free energy between i and j
 pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> Cache {
     cache(seq, temp)
@@ -114,11 +113,13 @@ pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> Cache {
 
 /// Get the dot bracket notation for a secondary structure.
 ///
-/// Args:
-///     structs: A list of structs, usually from the fold function
+/// # Args
 ///
-/// Returns:
-///     str: The dot bracket notation of the secondary structure
+/// - structs: A list of structs, usually from the fold function
+///
+/// # Returns
+///
+/// - str: The dot bracket notation of the secondary structure
 pub fn dot_bracket(seq: &[u8], values: &[Value]) -> Vec<u8> {
     let mut result = vec![b'.'; seq.len()];
     for v in values {
@@ -136,14 +137,13 @@ pub fn dot_bracket(seq: &[u8], values: &[Value]) -> Vec<u8> {
 /// The Structs is useful for gathering many possible energies
 /// between a series of (i,j) combinations.
 ///
-/// Args:
-///     seq: The sequence to fold
+/// # Args
 ///
-/// Keyword Args:
-///     temp: The temperature to fold at
+/// - seq: The sequence to fold
+/// - temp: The temperature to fold at
 ///
-/// Returns:
-///     (Structs, Structs): The w_cache and the v_cache for traversal later
+/// # Returns:
+/// - (Structs, Structs): The w_cache and the v_cache for traversal later
 pub fn cache(seq: &[u8], temp: Option<f64>) -> (Values, Values) {
     let temp = temp.unwrap_or(37.0);
 
@@ -158,7 +158,7 @@ pub fn cache(seq: &[u8], temp: Option<f64>) -> (Values, Values) {
     }
     if bps.iter().all(|b| b"AUCG".contains(b)) {
         dna = false;
-    } else if bps.iter().all(|b| b"ATGC".contains(b)) {
+    } else if bps.iter().any(|b| !b"ATGC".contains(b)) {
         panic!(
             "Unknown bp: {}. Only DNA/RNA foldable",
             bps.iter()
@@ -187,16 +187,17 @@ pub fn cache(seq: &[u8], temp: Option<f64>) -> (Values, Values) {
 ///
 /// Figure 2B in Zuker and Stiegler, 1981
 ///
-/// Args:
-///     seq: The sequence being folded
-///     i: The start index
-///     j: The end index (inclusive)
-///     temp: The temperature in Kelvin
-///     v_cache: Free energy cache for if i and j bp
-///     w_cache: Free energy cache for lowest energy structure from i to j. 0 otherwise
+/// # Args
 ///
-/// Returns:
-///     float: The free energy for the subsequence from i to j
+/// - seq: The sequence being folded
+/// - i: The start index
+/// - j: The end index (inclusive)
+/// - temp: The temperature in Kelvin
+/// - v_cache: Free energy cache for if i and j bp
+/// - w_cache: Free energy cache for lowest energy structure from i to j. 0 otherwise
+///
+/// # Returns
+/// - float: The free energy for the subsequence from i to j
 pub fn w(
     seq: &[u8],
     i: usize,
@@ -229,7 +230,8 @@ pub fn w(
     }
 
     let w = Matrix(&*w_cache);
-    let min_value = min_value([&w[w1], &w[w2], &w[w3], &w4]);
+    let v = Matrix(&*v_cache);
+    let min_value = min_value([&w[w1], &w[w2], &v[w3], &w4]);
     w_cache[i][j] = min_value;
     (i, j)
 }
@@ -239,17 +241,17 @@ pub fn w(
 /// If i and j don't bp, store and return INF.
 /// See: Figure 2B of Zuker, 1981
 ///
-/// Args:
-///     seq: The sequence being folded
-///     i: The start index
-///     j: The end index (inclusive)
-///     temp: The temperature in Kelvin
-///     v_cache: Free energy cache for if i and j bp. INF otherwise
-///     w_cache: Free energy cache for lowest energy structure from i to j. 0 otherwise
-///     emap: Energy map for DNA/RNA
+/// # Args
+/// - seq: The sequence being folded
+/// - i: The start index
+/// - j: The end index (inclusive)
+/// - temp: The temperature in Kelvin
+/// - v_cache: Free energy cache for if i and j bp. INF otherwise
+/// - w_cache: Free energy cache for lowest energy structure from i to j. 0 otherwise
+/// - emap: Energy map for DNA/RNA
 ///
-/// Returns:
-///     float: The minimum energy folding structure possible between i and j on seq
+/// # Returns
+/// - float: The minimum energy folding structure possible between i and j on seq
 pub fn v(
     seq: &[u8],
     i: usize,
@@ -383,15 +385,16 @@ pub fn v(
 
 /// Return a stack representation, a key for the NN maps
 ///
-/// Args:
-///     s: Sequence being folded
-///     i: leftmost index
-///     i1: index to right of i
-///     j: rightmost index
-///     j1: index to left of j
+/// # Args
+/// - s: Sequence being folded
+/// - i: leftmost index
+/// - i1: index to right of i
+/// - j: rightmost index
+/// - j1: index to left of j
 ///
-/// Returns:
-///     str: string representation of the pair
+/// # Returns:
+///
+/// - str: string representation of the pair
 pub fn calc_pair(
     s: &[u8],
     i: impl ToIsize,
@@ -411,11 +414,13 @@ pub fn calc_pair(
 
 /// Return the struct with the lowest free energy that isn't -inf (undef)
 ///
-/// Args:
-///     structs: Structures being compared
+/// # Args
 ///
-/// Returns:
-///     struct: The min free energy structure
+/// - structs: Structures being compared
+///
+/// # Returns
+///
+/// - struct: The min free energy structure
 pub fn min_value<'a>(values: impl IntoIterator<Item = &'a Value>) -> Value {
     let mut value = Value::NULL;
     for v in values {
@@ -428,13 +433,15 @@ pub fn min_value<'a>(values: impl IntoIterator<Item = &'a Value>) -> Value {
 
 /// Find the free energy given delta h, s and temp
 ///
-/// Args:
-///     d_h: The enthalpy increment in kcal / mol
-///     d_s: The entropy increment in cal / mol
-///     temp: The temperature in Kelvin
+/// # Args
 ///
-/// Returns:
-///     The free energy increment in kcal / (mol x K)
+/// - d_h: The enthalpy increment in kcal / mol
+/// - d_s: The entropy increment in cal / mol
+/// - temp: The temperature in Kelvin
+///
+/// # Returns
+///
+/// - The free energy increment in kcal / (mol x K)
 pub fn calc_d_g(d_h: f64, d_s: f64, temp: f64) -> f64 {
     d_h - temp * (d_s / 1000.0)
 }
@@ -445,15 +452,17 @@ pub fn calc_d_g(d_h: f64, d_s: f64, temp: f64) -> f64 {
 /// for bulges, hairpins, etc that fall outside the 30nt upper limit
 /// for pre-calculated free-energies. See SantaLucia and Hicks (2004).
 ///
-/// Args:
-///     query_len: Length of element without known free energy value
-///     known_len: Length of element with known free energy value (d_g_x)
-///     d_g_x: The free energy of the element known_len
-///     temp: Temperature in Kelvin
+/// # Args
 ///
-/// Returns:
-///     float: The free energy for a structure of length query_len
-fn j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
+/// - query_len: Length of element without known free energy value
+/// - known_len: Length of element with known free energy value (d_g_x)
+/// - d_g_x: The free energy of the element known_len
+/// - temp: Temperature in Kelvin
+///
+/// # Returns
+///
+/// - f64: The free energy for a structure of length query_len
+fn calc_j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
     let gas_constant = 1.9872e-3;
     d_g_x + 2.44 * gas_constant * temp * (query_len as f64 / known_len as f64).ln()
 }
@@ -468,16 +477,17 @@ fn j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
 /// The energy of a dangling end is added to the energy of a pair
 /// where i XOR j is at the sequence's end.
 ///
-/// Args:
-///     seq: The full folding sequence
-///     i: The start index on left side of the pair/stack
-///     i1: The index to the right of i
-///     j: The end index on right side of the pair/stack
-///     j1: The index to the left of j
-///     temp: Temperature in Kelvin
+/// # Args
 ///
-/// Returns:
-///     float: The free energy of the NN pairing
+/// - seq: The full folding sequence
+/// - i: The start index on left side of the pair/stack
+/// - i1: The index to the right of i
+/// - j: The end index on right side of the pair/stack
+/// - j1: The index to the left of j
+/// - temp: Temperature in Kelvin
+///
+/// # Returns
+/// - f64: The free energy of the NN pairing
 fn calc_stack(
     seq: &[u8],
     i: impl ToIsize,
@@ -557,15 +567,17 @@ fn calc_stack(
 
 /// Calculate the free energy of a hairpin.
 ///
-/// Args:
-///     seq: The sequence we're folding
-///     i: The index of start of hairpin
-///     j: The index of end of hairpin
-///     temp: Temperature in Kelvin
-///     emap: Map of energies
+/// # Args
 ///
-/// Returns:
-///     float: The free energy increment from the hairpin structure
+/// - seq: The sequence we're folding
+/// - i: The index of start of hairpin
+/// - j: The index of end of hairpin
+/// - temp: Temperature in Kelvin
+/// - emap: Map of energies
+///
+/// # Returns
+///
+/// - f64: The free energy increment from the hairpin structure
 pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f64 {
     if j - i < 4 {
         return f64::INFINITY;
@@ -593,7 +605,7 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
         // it's too large, extrapolate
         let (d_h, d_s) = emap.hairpin_loops[&30];
         let d_g_inc = calc_d_g(d_h, d_s, temp);
-        d_g += j_s(hairpin_len, 30, d_g_inc, temp);
+        d_g += calc_j_s(hairpin_len, 30, d_g_inc, temp);
     }
 
     // add penalty for a terminal mismatch
@@ -614,30 +626,33 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
 
 /// Calculate the free energy associated with a bulge.
 ///
-///     seq: The full folding DNA sequence
-///     i: The start index of the bulge
-///     i1: The index to the right of i
-///     j: The end index of the bulge
-///     j1: The index to the left of j
-///     loop: The sequence of the bulge
-///     temp: Temperature in Kelvin
-///     emap: Map to DNA/RNA energies
+/// # Args
 ///
-/// Returns:
-///     float: The increment in free energy from the bulge
+/// - seq: The full folding DNA sequence
+/// - i: The start index of the bulge
+/// - i1: The index to the right of i
+/// - j: The end index of the bulge
+/// - j1: The index to the left of j
+/// - loop: The sequence of the bulge
+/// - temp: Temperature in Kelvin
+/// - emap: Map to DNA/RNA energies
+///
+/// # Returns
+///
+/// - f64: The increment in free energy from the bulge
 pub fn bulge(
     seq: &[u8],
-    i: usize,
-    i1: usize,
-    j: usize,
-    j1: usize,
+    i: impl ToIsize,
+    i1: impl ToIsize,
+    j: impl ToIsize,
+    j1: impl ToIsize,
     temp: f64,
     emap: &Energies,
 ) -> f64 {
+    let (i, i1, j, j1) = (i.to_isize(), i1.to_isize(), j.to_isize(), j1.to_isize());
     let loop_len = (i1 - i - 1).max(j - j1 - 1);
-    if loop_len <= 0 {
-        panic!();
-    }
+    assert!(loop_len > 0, "Loop len can't be <= 0: {loop_len}");
+    let loop_len = loop_len as usize;
 
     // add penalty based on size
     let mut d_g = if emap.bulge_loops.contains_key(&loop_len) {
@@ -647,7 +662,7 @@ pub fn bulge(
         // it's too large for pre-calculated list, extrapolate
         let (d_h, d_s) = emap.bulge_loops[&30];
         let d_g = calc_d_g(d_h, d_s, temp);
-        j_s(loop_len, 30, d_g, temp)
+        calc_j_s(loop_len, 30, d_g, temp)
     };
 
     if loop_len == 1 {
@@ -658,7 +673,7 @@ pub fn bulge(
     }
 
     // penalize AT terminal bonds
-    if [i, i1, j, j1].iter().any(|&k| k == b'A' as usize) {
+    if [i, i1, j, j1].iter().any(|&k| seq[k as usize] == b'A') {
         d_g += 0.5
     }
 
@@ -677,17 +692,17 @@ pub fn bulge(
 ///
 /// This is adapted from the "Internal Loops" section of SantaLucia/Hicks, 2004
 ///
-/// Args:
-///     seq: The sequence we're folding
-///     i: The index of the start of structure on left side
-///     i1: The index to the right of i
-///     j: The index of the end of structure on right side
-///     j1: The index to the left of j
-///     temp: Temperature in Kelvin
-///     emap: Dictionary mapping to energies for DNA/RNA
+/// # Args
+/// - seq: The sequence we're folding
+/// - i: The index of the start of structure on left side
+/// - i1: The index to the right of i
+/// - j: The index of the end of structure on right side
+/// - j1: The index to the left of j
+/// - temp: Temperature in Kelvin
+/// - emap: Dictionary mapping to energies for DNA/RNA
 ///
-/// Returns:
-///     float: The free energy associated with the internal loop
+/// # Returns
+/// - f64: The free energy associated with the internal loop
 fn internal_loop(
     seq: &[u8],
     i: usize,
@@ -720,7 +735,7 @@ fn internal_loop(
         // it's too large an internal loop, extrapolate
         let (d_h, d_s) = emap.internal_loops[&30];
         let d_g = calc_d_g(d_h, d_s, temp);
-        j_s(loop_len, 30, d_g, temp)
+        calc_j_s(loop_len, 30, d_g, temp)
     };
 
     // apply an asymmetry penalty
@@ -744,22 +759,22 @@ fn internal_loop(
 // From Jaeger, Turner, and Zuker, 1989.
 // Found to be better than logarithmic in Ward, et al. 2017
 //
-// Args:
-//     seq: The sequence being folded
-//     i: The left starting index
-//     k: The mid-point in the search
-//     j: The right ending index
-//     temp: Folding temp
-//     v_cache: Structs of energies where V(i,j) bond
-//     w_cache: Structs of min energy of substructures between W(i,j)
-//     helix: Whether this multibranch is enclosed by a helix
-//     emap: Map to DNA/RNA energies
+// # Args
 //
-// Keyword Args:
-//     helix: Whether V(i, j) bond with one another in a helix
+// - seq: The sequence being folded
+// - i: The left starting index
+// - k: The mid-point in the search
+// - j: The right ending index
+// - temp: Folding temp
+// - v_cache: Structs of energies where V(i,j) bond
+// - w_cache: Structs of min energy of substructures between W(i,j)
+// - helix: Whether this multibranch is enclosed by a helix
+// - emap: Map to DNA/RNA energies
+// - helix: Whether V(i, j) bond with one another in a helix
 //
-// Returns:
-//     Struct: A multi-branch structure
+// # Returns
+//
+// - Struct: A multi-branch structure
 pub fn multi_branch(
     seq: &[u8],
     i: usize,
@@ -782,7 +797,7 @@ pub fn multi_branch(
     ) {
         let this = &w_cache[i][j];
 
-        if this.ij.is_empty() {
+        if !this.valid() || this.ij.is_empty() {
             return;
         }
 
@@ -834,8 +849,9 @@ pub fn multi_branch(
     let mut unpaired = 0;
     let mut e_sum = 0.0;
     for (index, &(i2, j2)) in branches.iter().enumerate() {
-        let (_, j1) = branches[(index - 1) % branches.len()];
-        let (i3, j3) = branches[(index + 1) % branches.len()];
+        // println!("{index}");
+        let (_, j1) = branches[(index as isize - 1).rem_euclid(branches.len() as isize) as usize];
+        let (i3, j3) = branches[(index as isize + 1).rem_euclid(branches.len() as isize) as usize];
 
         // add energy from unpaired bp to the right
         // of the helix as though it was a dangling end
@@ -844,11 +860,11 @@ pub fn multi_branch(
         let unpaired_left;
         let mut unpaired_right = 0;
         let mut de = 0.0;
-        // let [i2, i3, j1, j2, j3] = [i2, i3, j1, j2, j3].map(|n| n as isize);
+        let [i2, i3, j1, j2, j3] = [i2, i3, j1, j2, j3].map(|n| n as isize);
 
         if index == branches.len() - 1 && !helix {
             (); // do nothing
-        } else if (i3, j3) == (i, j) {
+        } else if (i3, j3) == (i as isize, j as isize) {
             unpaired_left = i2 - j1 - 1;
             unpaired_right = j3 - j2 - 1;
 
@@ -860,7 +876,7 @@ pub fn multi_branch(
                     de = calc_stack(seq, i3, -1, j3, j3 - 1, temp, emap).min(de);
                 }
             }
-        } else if (i2, j2) == (i, j) {
+        } else if (i2, j2) == (i as isize, j as isize) {
             unpaired_left = j2 - j1 - 1;
             unpaired_right = i3 - i2 - 1;
 
@@ -890,7 +906,7 @@ pub fn multi_branch(
         unpaired += unpaired_right;
         assert!(unpaired_right >= 0);
 
-        if (i2, j2) != (i, j) {
+        if (i2, j2) != (i as isize, j as isize) {
             // add energy
             let (i, j) = w(seq, i2 as usize, j2 as usize, temp, v_cache, w_cache, emap);
             e_sum += w_cache[i][j].e;
@@ -915,11 +931,11 @@ pub fn multi_branch(
         branches.pop();
     }
 
-    return Value::new(
+    Value::new(
         e,
         format!("BIFURCATION:{unpaired}n/{branches_count}h",),
         branches,
-    );
+    )
 }
 
 /// Traceback thru the V(i,j) and W(i,j) caches to find the structure
@@ -930,14 +946,15 @@ pub fn multi_branch(
 /// If the next structure is viable according to V(i,j), store as well
 /// Repeat
 ///
-/// Args:
-///     i: The leftmost index to start searching in
-///     j: The rightmost index to start searching in
-///     v_cache: Energies where i and j bond
-///     w_cache: Energies/sub-structures between or with i and j
+/// # Args
+/// - i: The leftmost index to start searching in
+/// - j: The rightmost index to start searching in
+/// - v_cache: Energies where i and j bond
+/// - w_cache: Energies/sub-structures between or with i and j
 ///
-/// Returns:
-///     A list of Structs in the final secondary structure
+/// # Returns
+///
+/// - A list of Structs in the final secondary structure
 pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values) -> Vec<Value> {
     // move i,j down-left to start coordinates
     let s_w = &w_cache[i][j];
@@ -964,22 +981,22 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
         // it's a multibranch
         if s_v.ij.len() > 1 {
             let mut e_sum = 0.0;
-            let mut structs = trackback_energy(&structs);
+            let mut values = trackback_energy(&structs);
             let mut branches = Vec::new();
             for &(i1, j1) in s_v.ij.iter() {
                 let tb = traceback(i1, j1, &v_cache, &w_cache);
-                if !tb.is_empty() && !tb[0].ij.is_empty() {
-                    let (i2, j2) = tb[0].ij[0];
+
+                if let Some(&(i2, j2)) = tb.get(0).and_then(|v| v.ij.first()) {
                     e_sum += w_cache[i2][j2].e;
                     branches.extend(tb);
                 }
             }
 
-            let last_value = structs.len() - 1;
-            structs[last_value].e = round1(structs[last_value].e - e_sum);
-            structs.extend(branches);
+            let last_index = values.len() - 1;
+            values[last_index].e = round1(values[last_index].e - e_sum);
+            values.extend(branches);
 
-            break structs;
+            break values;
         }
 
         // it's a stack, bulge, etc
@@ -997,19 +1014,21 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
 
 /// Add energy to each structure, based on how it's W(i,j) differs from the one after
 ///
-/// Args:
-///     structs: The structures for whom energy is being calculated
+/// # Args
 ///
-/// Returns:
-///     List[Struct]: Structures in the folded DNA with energy
+/// - vals: The structures for whom energy is being calculated
+///
+/// # Returns
+///
+/// - Vec<Value>: Structures in the folded DNA with energy
 pub fn trackback_energy(vals: &[Value]) -> Vec<Value> {
     vals.iter()
         .enumerate()
-        .map(|(index, s)| {
+        .map(|(index, v)| {
             let l = vals.len() - 1;
             let e_next = if index == l { 0.0 } else { vals[index + 1].e };
-            let e_corrected = round1(s.e - e_next);
-            Value::new(e_corrected, s.desc.clone(), s.ij.clone())
+            let e_corrected = round1(v.e - e_next);
+            Value::new(e_corrected, v.desc.clone(), v.ij.clone())
         })
         .collect()
 }
@@ -1071,29 +1090,7 @@ mod util {
             Self(value)
         }
     }
-    // impl<V> Matrix<V> {
-    //         fn get(&self, i: isize, j: isize) -> Option<&Value>
-    //         where
-    //             V: Deref<Target = Values>,
-    //         {
-    //             assert!(
-    //                 i > 0 && j > 0,
-    //                 "can't index with negative integer: ({i}, {j})."
-    //             );
-    //             self.0.get(i as usize)?.get(j as usize)
-    //         }
-    //
-    //         fn get_mut(&mut self, i: isize, j: isize) -> Option<&mut Value>
-    //         where
-    //             V: DerefMut<Target = Values>,
-    //         {
-    //             assert!(
-    //                 i > 0 && j > 0,
-    //                 "can't index with negative integer: ({i}, {j})."
-    //             );
-    //             self.0.get_mut(i as usize)?.get_mut(j as usize)
-    //         }
-    //     }
+
     impl<V> Matrix<V> {
         fn get(&self, i: usize, j: usize) -> Option<&Value>
         where
@@ -1150,5 +1147,269 @@ mod util {
             // &mut self[i][j]
             self.get_mut(i, j).expect("index out of bounds")
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    //! Test DNA/RNA folding.
+
+    // import unittest
+
+    use approx::assert_relative_eq;
+
+    use super::{Value, Values};
+    use crate::{dna, rna};
+
+    /// Fold function.
+    #[test]
+    #[should_panic]
+    fn test_fold_p1() {
+        // should throw if a nonsense sequence is provided
+        // with self.assertRaises(RuntimeError):
+        super::dg(b"EASFEASFAST", Some(37.0));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_fold_p2() {
+        // U and T, mix of RNA and DNA
+        // with self.assertRaises(RuntimeError):
+        super::dg(b"ATGCATGACGATUU", Some(37.0));
+    }
+
+    #[test]
+    fn test_fold_s1() {
+        // not throw
+        super::dg(b"ATGGATTTAGATAGAT", None);
+    }
+
+    /// Gather a cache of the folded structure.
+    #[test]
+    fn test_fold_cache() {
+        let seq = b"ATGGATTTAGATAGAT";
+        let cache = super::dg_cache(seq, None);
+        let seq_dg = super::dg(seq.as_slice(), None);
+
+        assert_relative_eq!(seq_dg, cache[0][seq.len() - 1], epsilon = 1.0);
+    }
+
+    /// DNA folding to find min energy secondary structure.
+    #[test]
+    fn test_fold_dna() {
+        //'s estimates for free energy estimates of DNA oligos
+        let unafold_dgs = [
+            ("GGGAGGTCGTTACATCTGGGTAACACCGGTACTGATCCGGTGACCTCCC", -10.94), // branched structure
+            (
+                "GGGAGGTCGCTCCAGCTGGGAGGAGCGTTGGGGGTATATACCCCCAACACCGGTACTGATCCGGTGACCTCCC",
+                -23.4,
+            ), // branched structure
+            ("CGCAGGGAUACCCGCG", -3.8),
+            ("TAGCTCAGCTGGGAGAGCGCCTGCTTTGCACGCAGGAGGT", -6.85),
+            (
+                "GGGGGCATAGCTCAGCTGGGAGAGCGCCTGCTTTGCACGCAGGAGGTCTGCGGTTCGATCCCGCGCGCTCCCACCA",
+                -15.50,
+            ),
+            ("TGAGACGGAAGGGGATGATTGTCCCCTTCCGTCTCA", -18.10),
+            ("ACCCCCTCCTTCCTTGGATCAAGGGGCTCAA", -3.65),
+        ];
+
+        for (seq, ufold) in unafold_dgs {
+            let d = super::dg(seq.as_bytes(), Some(37.0));
+
+            // a 60% difference
+            let delta = (0.6 * d.min(ufold)).abs();
+            assert_relative_eq!(d, ufold, epsilon = delta);
+        }
+    }
+
+    /// RNA folding to find min energy secondary structure.
+    #[test]
+    fn test_fold_rna() {
+        //'s estimates for free energy estimates of RNA oligos
+        // tests available at https://github.com/jaswindersingh2/SPOT-RNA/blob/master/sample_inputs/batch_seq.fasta
+        let unafold_dgs = [
+            ("ACCCCCUCCUUCCUUGGAUCAAGGGGCUCAA", -9.5),
+            ("AAGGGGUUGGUCGCCUCGACUAAGCGGCUUGGAAUUCC", -10.1),
+            ("UUGGAGUACACAACCUGUACACUCUUUC", -4.3),
+            ("AGGGAAAAUCCC", -3.3),
+            ("GCUUACGAGCAAGUUAAGCAAC", -4.6),
+            (
+                "UGGGAGGUCGUCUAACGGUAGGACGGCGGACUCUGGAUCCGCUGGUGGAGGUUCGAGUCCUCCCCUCCCAGCCA",
+                -32.8,
+            ),
+            (
+                "GGGCGAUGAGGCCCGCCCAAACUGCCCUGAAAAGGGCUGAUGGCCUCUACUG",
+                -20.7,
+            ),
+            (
+                "GGGGGCAUAGCUCAGCUGGGAGAGCGCCUGCUUUGCACGCAGGAGGUCUGCGGUUCGAUCCCGCGCGCUCCCACCA",
+                -31.4,
+            ),
+            (
+                "CAGCGCGGCGGGCGGGAGUCCGGCGCGCCCUCCAUCCCCGGCGGCGUCGGCAAGGAGUAG",
+                -18.26,
+            ),
+        ];
+
+        for (seq, ufold) in unafold_dgs {
+            let d = super::dg(seq.as_bytes(), Some(37.0));
+
+            // a 30% difference
+            let delta = (0.3 * d.min(ufold)).abs();
+            assert_relative_eq!(d, ufold, epsilon = delta);
+        }
+    }
+
+    /// Get the dot bracket notation for a folded structure.
+    #[test]
+    fn test_dot_bracket() {
+        let seq = b"GGGAGGTCGTTACATCTGGGTAACACCGGTACTGATCCGGTGACCTCCC";
+        let structs = super::fold(seq, None);
+
+        assert_eq!(
+            b"((((((((.((((......))))..((((.......)))).))))))))".as_slice(),
+            super::dot_bracket(seq, &structs),
+        );
+
+        let seq = b"ACGCTCACCGTGCCCAGTGAGCGA";
+        let structs = super::fold(seq, None);
+        assert_eq!(seq.len(), super::dot_bracket(seq, &structs).len());
+    }
+
+    /// Fold a multibranch structure.
+    #[test]
+    fn test_multibranch() {
+        let seq = b"GGGAGGTCGTTACATCTGGGTAACACCGGTACTGATCCGGTGACCTCCC"; // branch
+
+        let structs = super::fold(seq, None);
+        assert!(
+            structs
+                .iter()
+                .any(|v| v.desc.contains("BIFURCATION") && v.ij.contains(&(7, 41)))
+        );
+
+        let seq = b"CAGCGCGGCGGGCGGGAGUCCGGCGCGCCCUCCAUCCCCGGCGGCGUCGGCAAGGAGUAG";
+
+        let structs = super::fold(seq, None);
+        assert!(
+            structs
+                .iter()
+                .any(|v| v.desc.contains("BIFURCATION") && v.ij.contains(&(2, 56)))
+        );
+    }
+
+    /// Create a pair for stack checking.
+    #[test]
+    fn test_pair() {
+        let seq = b"ATGGAATAGTG";
+        assert_eq!(super::calc_pair(seq, 0, 1, 9, 10).as_slice(), b"AT/TG");
+    }
+
+    /// Calc delta G of a stack.
+    #[test]
+    fn test_stack() {
+        let seq = b"GCUCAGCUGGGAGAGC";
+        let temp = 310.15;
+
+        assert_relative_eq!(
+            super::calc_stack(seq, 1, 2, 14, 13, temp, rna()),
+            -2.1,
+            epsilon = 0.1
+        );
+    }
+
+    /// Calc delta G calc of a bulge.
+    #[test]
+    fn test_bulge() {
+        // bulge of CAT on one side and AG on other
+        // pg 429 of SantaLucia, 2004
+        let seq = b"ACCCCCATCCTTCCTTGAGTCAAGGGGCTCAA";
+
+        let pair_dg = super::bulge(seq, 5, 7, 18, 17, 310.15, dna());
+        assert_relative_eq!(3.22, pair_dg, epsilon = 0.4);
+    }
+
+    /// Calc delta G of a hairpin structure.
+    #[test]
+    fn test_hairpin() {
+        // = b"CCTTGG"
+        let seq = b"ACCCCCTCCTTCCTTGGATCAAGGGGCTCAA";
+        let i = 11;
+        let j = 16;
+        let temp = 310.15;
+        let hairpin_dg = super::hairpin(seq, i, j, temp, dna());
+        // differs from Unafold
+        assert_relative_eq!(hairpin_dg, 4.3, epsilon = 1.0);
+
+        // page 428 of SantaLucia, 2004
+        // = b"CGCAAG"
+        let seq = b"ACCCGCAAGCCCTCCTTCCTTGGATCAAGGGGCTCAA";
+        let i = 3;
+        let j = 8;
+        let hairpin_dg = super::hairpin(seq, i, j, temp, dna());
+        assert_relative_eq!(0.67, hairpin_dg, epsilon = 0.1);
+
+        let seq = b"CUUUGCACG";
+        let i = 0;
+        let j = 8;
+        let hairpin_dg = super::hairpin(seq, i, j, temp, rna());
+        assert_relative_eq!(4.5, hairpin_dg, epsilon = 0.2);
+    }
+
+    /// Calc dg of an internal loop.
+    #[test]
+    fn test_internal_loop() {
+        let seq = b"ACCCCCTCCTTCCTTGGATCAAGGGGCTCAA";
+        let i = 6;
+        let j = 21;
+        let temp = 310.15;
+        let dg = super::internal_loop(seq, i, i + 4, j, j - 4, temp, dna());
+        assert_relative_eq!(dg, 3.5, epsilon = 0.1);
+    }
+
+    /// Calculate _w over some range.
+    #[test]
+    fn test_w() {
+        let seq = b"GCUCAGCUGGGAGAGC";
+        let i = 0;
+        let j = 15;
+        let temp = 310.15;
+        let mut v_cache = Values::new();
+        let mut w_cache = Values::new();
+        for _ in 0..seq.len() {
+            v_cache.push(vec![Value::DEFAULT; seq.len()]);
+            w_cache.push(vec![Value::DEFAULT; seq.len()]);
+        }
+        let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
+        let value = &w_cache[i][j];
+        assert_relative_eq!(value.e, -3.8, epsilon = 0.2);
+
+        let seq = b"CCUGCUUUGCACGCAGG";
+        let i = 0;
+        let j = 16;
+        let temp = 310.15;
+        let mut v_cache = Values::new();
+        let mut w_cache = Values::new();
+        for _ in 0..seq.len() {
+            v_cache.push(vec![Value::DEFAULT; seq.len()]);
+            w_cache.push(vec![Value::DEFAULT; seq.len()]);
+        }
+        let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
+        let value = &w_cache[i][j];
+        assert_relative_eq!(value.e, -6.4, epsilon = 0.2);
+
+        let seq = b"GCGGUUCGAUCCCGC";
+        let i = 0;
+        let j = 14;
+        let mut v_cache = Values::new();
+        let mut w_cache = Values::new();
+        for _ in 0..seq.len() {
+            v_cache.push(vec![Value::DEFAULT; seq.len()]);
+            w_cache.push(vec![Value::DEFAULT; seq.len()]);
+        }
+        let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
+        let value = &w_cache[i][j];
+        assert_relative_eq!(value.e, -4.2, epsilon = 0.2);
     }
 }
