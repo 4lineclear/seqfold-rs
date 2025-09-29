@@ -16,8 +16,13 @@ pub const fn multibranch() -> MultiBranch {
 }
 
 pub fn complement() -> &'static Comp {
-    pub static RAW_COMPLEMENT: [(&str, &str); 5] =
-        [("A", "T"), ("T", "A"), ("G", "C"), ("C", "G"), ("N", "N")];
+    pub static RAW_COMPLEMENT: [(u8, u8); 5] = [
+        (b'A', b'T'),
+        (b'T', b'A'),
+        (b'G', b'C'),
+        (b'C', b'G'),
+        (b'N', b'N'),
+    ];
     pub static COMPLEMENT: LazyLock<Comp> = LazyLock::new(|| Comp::from(RAW_COMPLEMENT));
 
     &COMPLEMENT

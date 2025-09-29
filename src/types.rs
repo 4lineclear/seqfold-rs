@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub type Cache = Vec<Vec<f64>>;
 pub type MultiBranch = (f64, f64, f64, f64);
 
-pub type Comp = HashMap<&'static str, &'static str>;
+pub type Comp = HashMap<u8, u8>;
 pub type BpEnergy = HashMap<String, (f64, f64)>;
 pub type LoopEnergy = HashMap<u64, (f64, f64)>;
 
