@@ -1,4 +1,4 @@
-use crate::{dna::dna, types::Cache};
+use crate::{dna::dna, types::Cache, util::round1};
 
 /// Calculate the annealing temperature between seq1 and seq2.
 ///
@@ -37,39 +37,34 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
     // SantaLucia & Hicks (2004), Annu. Rev. Biophys. Biomol. Struct 33: 415-440
 
     // start with initiation enthalpy and entropy
-    let (mut dh, mut ds) = dna().nn["init"];
+    let (mut dh, mut ds) = dna().nn[b"init".as_slice()];
 
     // add in initial A/T and initial G/Cs
     let init = [seq1[0], seq1[seq1.len() - 1]];
     let [a, t, g, c] = counts(&init, [b'A', b'T', b'G', b'C']);
     let init_at = (a + t) as f64;
     let init_gc = (g + c) as f64;
-    let (init_at_h, init_at_s) = dna().nn["init_A/T"];
-    let (init_gc_h, init_gc_s) = dna().nn["init_G/C"];
+    let (init_at_h, init_at_s) = dna().nn[b"init_A/T".as_slice()];
+    let (init_gc_h, init_gc_s) = dna().nn[b"init_G/C".as_slice()];
     dh += init_at * init_at_h + init_gc * init_gc_h;
     ds += init_at * init_at_s + init_gc * init_gc_s;
 
     // work through each nearest neighbor pair
     for i in 0..seq1.len() - 1 {
-        let pair = format!(
-            "{}{}/{}{}",
-            seq1[i] as char,
-            seq1[i + 1] as char,
-            seq2[i] as char,
-            seq2[i + 1] as char
-        );
+        let pair = [seq1[i], seq1[i + 1], b'/', seq2[i], seq2[i + 1]];
+        let pair = pair.as_slice();
 
         // assuming internal neighbor pair
         let (mut pair_dh, mut pair_ds) = (0.0, 0.0);
-        if dna().nn.contains_key(&pair) {
-            (pair_dh, pair_ds) = dna().nn[&pair];
-        } else if dna().internal_mm.contains_key(&pair) {
-            (pair_dh, pair_ds) = dna().internal_mm[&pair];
+        if dna().nn.contains_key(pair) {
+            (pair_dh, pair_ds) = dna().nn[pair];
+        } else if dna().internal_mm.contains_key(pair) {
+            (pair_dh, pair_ds) = dna().internal_mm[pair];
         }
 
         // overwrite if it's a terminal pair
-        if [0, seq1.len() - 2].contains(&i) && dna().terminal_mm.contains_key(&pair) {
-            (pair_dh, pair_ds) = dna().terminal_mm[&pair];
+        if [0, seq1.len() - 2].contains(&i) && dna().terminal_mm.contains_key(pair) {
+            (pair_dh, pair_ds) = dna().terminal_mm[pair];
         }
 
         dh += pair_dh;
@@ -77,7 +72,7 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
     }
 
     let gc = gc(&seq1);
-    calc_tm(dh, ds, pcr.unwrap_or(true), gc, seq1.len() as u64)
+    calc_tm(dh, ds, pcr.unwrap_or(true), gc, seq1.len())
 }
 
 /// Return a TmCache where each (i, j) returns the Tm for that subspan.
@@ -125,18 +120,12 @@ pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
             continue;
         }
 
-        // TODO: move away from format
-        let pair = format!(
-            "{}{}/{}{}",
-            seq1[i] as char,
-            seq1[i + 1] as char,
-            seq2[i] as char,
-            seq2[i + 1] as char
-        );
+        let pair = [seq1[i], seq1[i + 1], b'/', seq2[i], seq2[i + 1]];
+        let pair = pair.as_slice();
         let &(dh, ds) = dna()
             .nn
-            .get(&pair)
-            .unwrap_or_else(|| &dna().internal_mm[&pair]);
+            .get(pair)
+            .unwrap_or_else(|| &dna().internal_mm[pair]);
 
         arr_dh[i][i] = dh;
         arr_ds[i][i] = ds;
@@ -146,13 +135,7 @@ pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
             for j in i + 1..n {
                 arr_dh[i][j] = arr_dh[i][j - 1] + arr_dh[j][j];
                 arr_ds[i][j] = arr_ds[i][j - 1] + arr_ds[j][j];
-                arr_tm[i][j] = calc_tm(
-                    arr_dh[i][j],
-                    arr_ds[i][j],
-                    pcr,
-                    arr_gc[i][j],
-                    (j - i + 1) as u64,
-                );
+                arr_tm[i][j] = calc_tm(arr_dh[i][j], arr_ds[i][j], pcr, arr_gc[i][j], j - i + 1);
             }
         }
     }
@@ -253,7 +236,7 @@ pub fn parse_input(seq1: &[u8], seq2: Option<&[u8]>) -> (Vec<u8>, Vec<u8>) {
 ///
 /// - `f64`: The estimated tm
 #[expect(non_snake_case)]
-pub fn calc_tm(dh: f64, ds: f64, pcr: bool, gc: f64, seq_len: u64) -> f64 {
+pub fn calc_tm(dh: f64, ds: f64, pcr: bool, gc: f64, seq_len: usize) -> f64 {
     // adjust salt based on mode
     let (seq1_conc, seq2_conc, Na, K, Tris, Mg, dNTPs) = if pcr {
         // see Thermo for tris
@@ -331,11 +314,6 @@ fn counts<const N: usize>(seq: &[u8], symbols: [u8; N]) -> [usize; N] {
     counts
 }
 
-/// Round to one decimal
-fn round1(n: f64) -> f64 {
-    (n * 10.0).round() / 10.0
-}
-
 #[cfg(test)]
 mod test {
     //! Test Tm calculation
@@ -355,9 +333,7 @@ mod test {
         // Owczarzy et al. (2008), Biochemistry 4 7: 5336-5353
         // with a 1.5mM Mg concentration which looks typical according to NEB
         let experimental_tms = [
-            // -356.6
             ("GGGACCGCCT", 51.9),
-            // -278.7
             ("CCATTGCTACC", 42.7),
             ("GCAGTGGATGTGAGA", 55.1),
             ("CTGGTCTGGATCTGAGAACTTCAGG", 67.7),

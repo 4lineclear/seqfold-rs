@@ -8,11 +8,11 @@ pub type Cache = Vec<Vec<f64>>;
 pub type MultiBranch = (f64, f64, f64, f64);
 
 pub type Comp = HashMap<u8, u8>;
-pub type BpEnergy = HashMap<String, (f64, f64)>;
-pub type LoopEnergy = HashMap<u64, (f64, f64)>;
+pub type BpEnergy = HashMap<Vec<u8>, (f64, f64)>;
+pub type LoopEnergy = HashMap<usize, (f64, f64)>;
 
 #[derive(Debug)]
-pub struct Engergies {
+pub struct Energies {
     pub bulge_loops: &'static LoopEnergy,
     pub complement: &'static Comp,
     pub de: &'static BpEnergy,
