@@ -1,3 +1,5 @@
+//! Calculate the tm of a DNA sequence
+
 use crate::{dna::dna, types::Cache, util::round1};
 
 /// Calculate the annealing temperature between seq1 and seq2.
@@ -13,8 +15,8 @@ use crate::{dna::dna, types::Cache, util::round1};
 /// that match a typical PCR reaction according to Thermo and NEB. Additionally,
 /// the salt correction formula from IDT's Owczarzy et al. (2008) is used.
 ///
-/// NEB: https://www.neb.com/tools-and-resources/usage-guidelines/guidelines-for-pcr-optimization-with-taq-dna-polymerase
-/// ThermoFisher: https://www.thermofisher.com/order/catalog/product/18067017?SID=srch-srp-18067017
+/// NEB: <https://www.neb.com/tools-and-resources/usage-guidelines/guidelines-for-pcr-optimization-with-taq-dna-polymerase>
+/// ThermoFisher: <https://www.thermofisher.com/order/catalog/product/18067017?SID=srch-srp-18067017>
 ///
 /// NOTE: Sequences are assumed not to be symmetrical. Oligo not binding to self.
 ///
@@ -28,7 +30,7 @@ use crate::{dna::dna, types::Cache, util::round1};
 ///
 /// # Returns
 ///
-/// - f64: The estimated tm as a float
+/// - [`f64`]: The estimated tm as a float
 pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
     let (seq1, seq2) = parse_input(seq1, seq2);
 
@@ -93,7 +95,7 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
 ///
 /// # Returns
 ///
-/// - `TmCache`: Where querying the cache with (i, j) returns the tm of the
+/// - [`Cache`]: Where querying the cache with (i, j) returns the tm of the
 ///              subsequence starting with i and ending with j, inclusive
 pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
     let pcr = pcr.unwrap_or(true);
@@ -151,7 +153,7 @@ pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
 ///
 /// # Returns
 ///
-/// - `Cache`: A cache for GC ratio lookup
+/// - [`Cache`]: A cache for GC ratio lookup
 pub fn gc_cache(seq: &[u8]) -> Cache {
     let n = seq.len();
     let mut arr_gc = vec![vec![f64::INFINITY; n]; n];
@@ -234,7 +236,7 @@ pub fn parse_input(seq1: &[u8], seq2: Option<&[u8]>) -> (Vec<u8>, Vec<u8>) {
 ///
 /// # Returns
 ///
-/// - `f64`: The estimated tm
+/// - [`f64`]: The estimated tm
 #[expect(non_snake_case)]
 pub fn calc_tm(dh: f64, ds: f64, pcr: bool, gc: f64, seq_len: usize) -> f64 {
     // adjust salt based on mode

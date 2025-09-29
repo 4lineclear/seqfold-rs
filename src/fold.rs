@@ -1,3 +1,5 @@
+//! Predict nucleic acid secondary structure
+
 use std::collections::HashSet;
 
 use crate::{
@@ -8,9 +10,9 @@ use crate::{
 /// A single structure with a free energy, description, and inward children.
 #[derive(Debug, Clone)]
 pub struct Value {
-    e: f64,
-    desc: String,
-    ij: Vec<(usize, usize)>,
+    pub e: f64,
+    pub desc: String,
+    pub ij: Vec<(usize, usize)>,
 }
 
 impl From<f64> for Value {
@@ -47,18 +49,19 @@ impl PartialEq for Value {
     }
 }
 
+/// A map from i, j tuple to a min free energy Struct.
 pub type Values = Vec<Vec<Value>>;
 
 /// Fold the DNA sequence and return the lowest free energy score.
 ///
 /// Based on the approach described in:
 /// Zuker and Stiegler, 1981
-/// https://www.ncbi.nlm.nih.gov/pmc/articles/PMC326673/pdf/nar00394-0137.pdf
+/// <https://www.ncbi.nlm.nih.gov/pmc/articles/PMC326673/pdf/nar00394-0137.pdf>
 ///
 /// If the sequence is 50 or more bp long, "isolated" matching bp
 /// are ignored in V(i,j). This is based on an approach described in:
 /// Mathews, Sabina, Zuker and Turner, 1999
-/// https://www.ncbi.nlm.nih.gov/pubmed/10329189
+/// <https://www.ncbi.nlm.nih.gov/pubmed/10329189>
 ///
 /// # Args
 ///
@@ -67,7 +70,7 @@ pub type Values = Vec<Vec<Value>>;
 ///
 /// # Returns
 ///
-/// - List[Struct]: A list of structures. Stacks, bulges, hairpins, etc.
+/// - [`Vec<Value>`]: A list of structures. Stacks, bulges, hairpins, etc.
 pub fn fold(seq: &[u8], temp: Option<f64>) -> Vec<Value> {
     let (v_cache, w_cache) = cache(seq, temp);
     let n = seq.len();
@@ -83,9 +86,9 @@ pub fn fold(seq: &[u8], temp: Option<f64>) -> Vec<Value> {
 /// - seq: The sequence to fold
 /// - temp: The temperature to fold at
 ///
-/// # Returns:
+/// # Returns
 ///
-/// - float: The minimum free energy of the folded sequence
+/// - [`f64`]: The minimum free energy of the folded sequence
 pub fn dg(seq: &[u8], temp: Option<f64>) -> f64 {
     let values: Vec<Value> = fold(seq, temp);
     let dg_sum = values.iter().map(|v| v.e).sum();
@@ -101,8 +104,8 @@ pub fn dg(seq: &[u8], temp: Option<f64>) -> f64 {
 ///
 /// # Returns
 ///
-/// - Cache: A 2D matrix where each (i, j) pairing corresponds to the
-///         minimum free energy between i and j
+/// - [`Cache`]: A 2D matrix where each (i, j) pairing corresponds to the
+///              minimum free energy between i and j
 pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> Cache {
     cache(seq, temp)
         .1
@@ -119,7 +122,7 @@ pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> Cache {
 ///
 /// # Returns
 ///
-/// - str: The dot bracket notation of the secondary structure
+/// - [`Vec<u8>`]: The dot bracket notation of the secondary structure
 pub fn dot_bracket(seq: &[u8], values: &[Value]) -> Vec<u8> {
     let mut result = vec![b'.'; seq.len()];
     for v in values {
@@ -134,7 +137,7 @@ pub fn dot_bracket(seq: &[u8], values: &[Value]) -> Vec<u8> {
 
 /// Create caches for the w_cache and v_cache
 ///
-/// The Structs is useful for gathering many possible energies
+/// The Values are useful for gathering many possible energies
 /// between a series of (i,j) combinations.
 ///
 /// # Args
@@ -142,8 +145,9 @@ pub fn dot_bracket(seq: &[u8], values: &[Value]) -> Vec<u8> {
 /// - seq: The sequence to fold
 /// - temp: The temperature to fold at
 ///
-/// # Returns:
-/// - (Structs, Structs): The w_cache and the v_cache for traversal later
+/// # Returns
+///
+/// - [`(Values, Values)`]: The w_cache and the v_cache for traversal later
 pub fn cache(seq: &[u8], temp: Option<f64>) -> (Values, Values) {
     let temp = temp.unwrap_or(37.0);
 
@@ -197,7 +201,8 @@ pub fn cache(seq: &[u8], temp: Option<f64>) -> (Values, Values) {
 /// - w_cache: Free energy cache for lowest energy structure from i to j. 0 otherwise
 ///
 /// # Returns
-/// - float: The free energy for the subsequence from i to j
+///
+/// - [`f64`]: The free energy for the subsequence from i to j
 pub fn w(
     seq: &[u8],
     i: usize,
@@ -242,6 +247,7 @@ pub fn w(
 /// See: Figure 2B of Zuker, 1981
 ///
 /// # Args
+///
 /// - seq: The sequence being folded
 /// - i: The start index
 /// - j: The end index (inclusive)
@@ -251,7 +257,8 @@ pub fn w(
 /// - emap: Energy map for DNA/RNA
 ///
 /// # Returns
-/// - float: The minimum energy folding structure possible between i and j on seq
+///
+/// - [`f64`]: The minimum energy folding structure possible between i and j on seq
 pub fn v(
     seq: &[u8],
     i: usize,
@@ -386,15 +393,16 @@ pub fn v(
 /// Return a stack representation, a key for the NN maps
 ///
 /// # Args
+///
 /// - s: Sequence being folded
 /// - i: leftmost index
 /// - i1: index to right of i
 /// - j: rightmost index
 /// - j1: index to left of j
 ///
-/// # Returns:
+/// # Returns
 ///
-/// - str: string representation of the pair
+/// - [`[u8; 5]`]: string representation of the pair
 pub fn calc_pair(
     s: &[u8],
     i: impl ToIsize,
@@ -416,11 +424,11 @@ pub fn calc_pair(
 ///
 /// # Args
 ///
-/// - structs: Structures being compared
+/// - values: Values being compared
 ///
 /// # Returns
 ///
-/// - struct: The min free energy structure
+/// - [`Value`]: The min free energy structure
 pub fn min_value<'a>(values: impl IntoIterator<Item = &'a Value>) -> Value {
     let mut value = Value::NULL;
     for v in values {
@@ -461,7 +469,7 @@ pub fn calc_d_g(d_h: f64, d_s: f64, temp: f64) -> f64 {
 ///
 /// # Returns
 ///
-/// - f64: The free energy for a structure of length query_len
+/// - [`f64`]: The free energy for a structure of length query_len
 fn calc_j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
     let gas_constant = 1.9872e-3;
     d_g_x + 2.44 * gas_constant * temp * (query_len as f64 / known_len as f64).ln()
@@ -487,7 +495,8 @@ fn calc_j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
 /// - temp: Temperature in Kelvin
 ///
 /// # Returns
-/// - f64: The free energy of the NN pairing
+///
+/// - [`f64`]: The free energy of the NN pairing
 fn calc_stack(
     seq: &[u8],
     i: impl ToIsize,
@@ -577,7 +586,7 @@ fn calc_stack(
 ///
 /// # Returns
 ///
-/// - f64: The free energy increment from the hairpin structure
+/// - [`f64`]: The free energy increment from the hairpin structure
 pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f64 {
     if j - i < 4 {
         return f64::INFINITY;
@@ -639,7 +648,7 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
 ///
 /// # Returns
 ///
-/// - f64: The increment in free energy from the bulge
+/// - [`f64`]: The increment in free energy from the bulge
 pub fn bulge(
     seq: &[u8],
     i: impl ToIsize,
@@ -702,7 +711,8 @@ pub fn bulge(
 /// - emap: Dictionary mapping to energies for DNA/RNA
 ///
 /// # Returns
-/// - f64: The free energy associated with the internal loop
+///
+/// - [`f64`]: The free energy associated with the internal loop
 fn internal_loop(
     seq: &[u8],
     i: usize,
@@ -754,27 +764,27 @@ fn internal_loop(
     d_g
 }
 
-// Calculate a multi-branch energy penalty using a linear formula.
-//
-// From Jaeger, Turner, and Zuker, 1989.
-// Found to be better than logarithmic in Ward, et al. 2017
-//
-// # Args
-//
-// - seq: The sequence being folded
-// - i: The left starting index
-// - k: The mid-point in the search
-// - j: The right ending index
-// - temp: Folding temp
-// - v_cache: Structs of energies where V(i,j) bond
-// - w_cache: Structs of min energy of substructures between W(i,j)
-// - helix: Whether this multibranch is enclosed by a helix
-// - emap: Map to DNA/RNA energies
-// - helix: Whether V(i, j) bond with one another in a helix
-//
-// # Returns
-//
-// - Struct: A multi-branch structure
+/// Calculate a multi-branch energy penalty using a linear formula.
+///
+/// From Jaeger, Turner, and Zuker, 1989.
+/// Found to be better than logarithmic in Ward, et al. 2017
+///
+/// # Args
+///
+/// - seq: The sequence being folded
+/// - i: The left starting index
+/// - k: The mid-point in the search
+/// - j: The right ending index
+/// - temp: Folding temp
+/// - v_cache: Values of energies where V(i,j) bond
+/// - w_cache: Values of min energy of substructures between W(i,j)
+/// - helix: Whether this multibranch is enclosed by a helix
+/// - emap: Map to DNA/RNA energies
+/// - helix: Whether V(i, j) bond with one another in a helix
+///
+/// # Returns
+///
+/// - [`Value`]: A multi-branch structure
 pub fn multi_branch(
     seq: &[u8],
     i: usize,
@@ -849,7 +859,6 @@ pub fn multi_branch(
     let mut unpaired = 0;
     let mut e_sum = 0.0;
     for (index, &(i2, j2)) in branches.iter().enumerate() {
-        // println!("{index}");
         let (_, j1) = branches[(index as isize - 1).rem_euclid(branches.len() as isize) as usize];
         let (i3, j3) = branches[(index as isize + 1).rem_euclid(branches.len() as isize) as usize];
 
@@ -954,7 +963,7 @@ pub fn multi_branch(
 ///
 /// # Returns
 ///
-/// - A list of Structs in the final secondary structure
+/// - A list of Values in the final secondary structure
 pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values) -> Vec<Value> {
     // move i,j down-left to start coordinates
     let s_w = &w_cache[i][j];
@@ -1020,7 +1029,7 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
 ///
 /// # Returns
 ///
-/// - Vec<Value>: Structures in the folded DNA with energy
+/// - [`Vec<Value>`]: Values in the folded DNA with energy
 pub fn trackback_energy(vals: &[Value]) -> Vec<Value> {
     vals.iter()
         .enumerate()

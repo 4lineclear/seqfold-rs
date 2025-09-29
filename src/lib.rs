@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 pub mod dna;
 pub mod fold;
 pub mod rna;
@@ -7,7 +9,7 @@ pub mod types;
 pub use dna::dna;
 pub use rna::rna;
 
-pub mod util {
+mod util {
     /// Round to one decimal
     pub fn round1(n: f64) -> f64 {
         (n * 10.0).round() / 10.0
