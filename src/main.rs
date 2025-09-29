@@ -1,3 +1,4 @@
-fn main() {
-    println!("Hello, world!");
+pub fn main() {
+    println!("{:#?}", seqfold_rs::rna::rna());
+    println!("{:#?}", seqfold_rs::dna::dna());
 }
