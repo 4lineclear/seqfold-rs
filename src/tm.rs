@@ -29,7 +29,7 @@ use crate::{dna::dna, types::Cache};
 /// # Returns
 ///
 /// - f64: The estimated tm as a float
-pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> f64 {
+pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
     let (seq1, seq2) = parse_input(seq1, seq2);
 
     // sum enthalpy and entropy. Enthaply is first value of each tuple and
@@ -51,7 +51,13 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> f64 {
 
     // work through each nearest neighbor pair
     for i in 0..seq1.len() - 1 {
-        let pair = format!("{}{}/{}{}", seq1[i], seq1[i + 1], seq2[i], seq2[i + 1]);
+        let pair = format!(
+            "{}{}/{}{}",
+            seq1[i] as char,
+            seq1[i + 1] as char,
+            seq2[i] as char,
+            seq2[i + 1] as char
+        );
 
         // assuming internal neighbor pair
         let (mut pair_dh, mut pair_ds) = (0.0, 0.0);
@@ -62,10 +68,8 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> f64 {
         }
 
         // overwrite if it's a terminal pair
-        if [0, seq1.len() - 2].contains(&i) {
-            if dna().terminal_mm.contains_key(&pair) {
-                (pair_dh, pair_ds) = dna().terminal_mm[&pair];
-            }
+        if [0, seq1.len() - 2].contains(&i) && dna().terminal_mm.contains_key(&pair) {
+            (pair_dh, pair_ds) = dna().terminal_mm[&pair];
         }
 
         dh += pair_dh;
@@ -73,7 +77,7 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> f64 {
     }
 
     let gc = gc(&seq1);
-    calc_tm(dh, ds, pcr, gc, seq1.len() as u64)
+    calc_tm(dh, ds, pcr.unwrap_or(true), gc, seq1.len() as u64)
 }
 
 /// Return a TmCache where each (i, j) returns the Tm for that subspan.
@@ -96,7 +100,8 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> f64 {
 ///
 /// - `TmCache`: Where querying the cache with (i, j) returns the tm of the
 ///              subsequence starting with i and ending with j, inclusive
-pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> Cache {
+pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
+    let pcr = pcr.unwrap_or(true);
     let (seq1, seq2) = parse_input(seq1, seq2);
     let n = seq1.len(); // using nearest neighbors, -1
 
@@ -120,7 +125,14 @@ pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> Cache {
             continue;
         }
 
-        let pair = format!("{}{}/{}{}", &seq1[i], &seq1[i + 1], &seq2[i], &seq2[i + 1]);
+        // TODO: move away from format
+        let pair = format!(
+            "{}{}/{}{}",
+            seq1[i] as char,
+            seq1[i + 1] as char,
+            seq2[i] as char,
+            seq2[i + 1] as char
+        );
         let &(dh, ds) = dna()
             .nn
             .get(&pair)
@@ -159,10 +171,7 @@ pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: bool) -> Cache {
 /// - `Cache`: A cache for GC ratio lookup
 pub fn gc_cache(seq: &[u8]) -> Cache {
     let n = seq.len();
-    let mut arr_gc = Cache::new();
-    for _ in seq {
-        arr_gc.push(vec![f64::INFINITY; seq.len()]);
-    }
+    let mut arr_gc = vec![vec![f64::INFINITY; n]; n];
 
     // fill in the diagonal
     for i in 0..n {
@@ -196,6 +205,8 @@ pub fn gc_cache(seq: &[u8]) -> Cache {
 
     arr_gc
 }
+
+// TODO: turn this into a result
 
 /// Parse and prepare the input sequences. Throw if there's an issue.
 ///
@@ -273,23 +284,23 @@ pub fn calc_tm(dh: f64, ds: f64, pcr: bool, gc: f64, seq_len: u64) -> f64 {
     if Mon > 0.0 {
         let R = mg.sqrt() / mon;
         if R < 0.22 {
-            return (4.29 * gc / 100.0 - 3.95) * 1e-5 * mon.log10() + 9.4e-6 * mon.log10().powi(2);
+            return (4.29 * gc / 100.0 - 3.95) * 1e-5 * mon.ln() + 9.4e-6 * mon.ln().powi(2);
         } else if R < 6.0 {
-            a = 3.92 * (0.843 - 0.352 * mon.sqrt() * mon.log10());
-            d = 1.42 * (1.279 - 4.03e-3 * mon.log10() - 8.03e-3 * mon.log10().powi(2));
-            g = 8.31 * (0.486 - 0.258 * mon.log10() + 5.25e-3 * mon.log10().powi(3));
+            a = 3.92 * (0.843 - 0.352 * mon.sqrt() * mon.ln());
+            d = 1.42 * (1.279 - 4.03e-3 * mon.ln() - 8.03e-3 * mon.ln().powi(2));
+            g = 8.31 * (0.486 - 0.258 * mon.ln() + 5.25e-3 * mon.ln().powi(3));
         }
     }
     let corr = (a
-        + b * mg.log10()
-        + (gc / 100.0) * (c + d * mg.log10())
-        + (1.0 / (2.0 * (seq_len as f64 - 1.0))) * (e + f * mg.log10() + g * mg.log10().powi(2)))
+        + b * mg.ln()
+        + (gc / 100.0) * (c + d * mg.ln())
+        + (1.0 / (2.0 * (seq_len as f64 - 1.0))) * (e + f * mg.ln() + g * mg.ln().powi(2)))
         * 1e-5;
 
     // tm with concentration consideration
     let k = (seq1_conc - (seq2_conc / 2.0f64)) * 1e-9;
     let R = 1.9872;
-    let est = (dh * 1000.0) / (ds + R * k.log10()) - 273.15;
+    let est = (dh * 1000.0) / (ds + R * k.ln()) - 273.15;
 
     // add in salt correction
     let est = 1.0 / (1.0 / (est + 273.15) + corr) - 273.1;
@@ -323,4 +334,73 @@ fn counts<const N: usize>(seq: &[u8], symbols: [u8; N]) -> [usize; N] {
 /// Round to one decimal
 fn round1(n: f64) -> f64 {
     (n * 10.0).round() / 10.0
+}
+
+#[cfg(test)]
+mod test {
+    //! Test Tm calculation
+
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn counts() {
+        let counts = super::counts(b"AcBdBBrBeAlBaThakaZAAzaaBBAA", [b'a', b'A', b'B']);
+        assert_eq!(counts, [5, 6, 7]);
+    }
+
+    /// Oligo tm calculation.
+    #[test]
+    fn test_calc_tm() {
+        // values are from Table 1 of IDT's:
+        // Owczarzy et al. (2008), Biochemistry 4 7: 5336-5353
+        // with a 1.5mM Mg concentration which looks typical according to NEB
+        let experimental_tms = [
+            // -356.6
+            ("GGGACCGCCT", 51.9),
+            // -278.7
+            ("CCATTGCTACC", 42.7),
+            ("GCAGTGGATGTGAGA", 55.1),
+            ("CTGGTCTGGATCTGAGAACTTCAGG", 67.7),
+            ("CTTAAGATATGAGAACTTCAACTAATGTGT", 59.7),
+            ("AGTCTGGTCTGGATCTGAGAACTTCAGGCT", 71.6),
+        ];
+
+        for (seq, actual) in experimental_tms {
+            let calc = super::tm(seq.as_bytes(), None, None);
+            assert_relative_eq!(calc, actual, epsilon = 7.0);
+        }
+    }
+
+    /// Create a cache for tms over ranges in the sequence.
+    #[test]
+    fn test_tm_cache() {
+        let seq = "AGTCTGGTCTGGATCTGAGAACTTCAGGCT";
+        let n = seq.len();
+
+        let cache = super::tm_cache(seq.as_bytes(), None, None);
+
+        assert_relative_eq!(cache[0][n - 1], 71.6, epsilon = 3.0);
+        assert!(cache[3][n - 3] < 71.6);
+        assert_eq!(f64::INFINITY, cache[5][5]);
+        assert_eq!(f64::INFINITY, cache[5][1]);
+    }
+
+    /// Create a cache of GC ratios from i to j.
+    #[test]
+    fn test_gc_cache() {
+        let seq = "GGATTACCCAGATAGATAGAT";
+        let ranges = [(0, seq.len() - 1), (5, 9), (3, 15)];
+
+        let cache = super::gc_cache(seq.as_bytes());
+
+        for (s, e) in ranges {
+            let est = cache[s][e];
+            let ss = &seq[s..e + 1];
+            let [g, c] = super::counts(ss.as_bytes(), [b'G', b'C']);
+            let gc_count = g + c;
+            let gc_actual = (gc_count as f64) / ((e - s + 1) as f64);
+
+            assert_relative_eq!(gc_actual, est, epsilon = 0.02);
+        }
+    }
 }
