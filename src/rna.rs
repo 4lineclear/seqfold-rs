@@ -1,8 +1,8 @@
-//! RNA enthalpy and entropy change parameters."""
-
-use crate::types::*;
+//! RNA enthalpy and entropy change parameters.
 
 use std::sync::LazyLock;
+
+use crate::{BpEnergy, Comp, Energies, LoopEnergy, MultiBranch};
 
 pub const fn multibranch() -> MultiBranch {
     (2.5, 0.1, 0.4, 2.0)

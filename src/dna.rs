@@ -1,6 +1,6 @@
 //! DNA enthalpy and entropy change parameters.
 
-use crate::types::*;
+use crate::{BpEnergy, Comp, Energies, LoopEnergy, MultiBranch};
 
 use std::sync::LazyLock;
 

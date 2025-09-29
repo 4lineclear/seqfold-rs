@@ -1,6 +1,6 @@
 //! Calculate the tm of a DNA sequence
 
-use crate::{dna::dna, types::Cache, util::round1};
+use crate::{Cache, dna, util::round1};
 
 /// Calculate the annealing temperature between seq1 and seq2.
 ///
