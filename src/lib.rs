@@ -10,6 +10,8 @@ pub mod tm;
 pub use dna::dna;
 pub use rna::rna;
 
+pub use fold::fold;
+
 use std::collections::HashMap;
 
 // TODO: see if we can move away from statics
