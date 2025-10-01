@@ -26,7 +26,7 @@ pub fn complement() -> Comp {
         (b'N', b'N'),
     ];
 
-    Comp::from(RAW_COMPLEMENT)
+    Comp::from_iter(RAW_COMPLEMENT)
 }
 
 /// The Thermodynamics of DNA Structural Motifs
@@ -445,7 +445,7 @@ pub fn internal_loops() -> LoopEnergy {
         (30, (0.0, -21.3)),
     ];
 
-    LoopEnergy::from(RAW_INTERNAL_LOOPS)
+    LoopEnergy::from_iter(RAW_INTERNAL_LOOPS)
 }
 
 /// Enthalpy and entropy increments for length depedence of bulge loops
@@ -493,7 +493,7 @@ pub fn bulge_loops() -> LoopEnergy {
         (30, (0.0, -19.0)),
     ];
 
-    LoopEnergy::from(RAW_BULGE_LOOPS)
+    LoopEnergy::from_iter(RAW_BULGE_LOOPS)
 }
 
 /// Enthalpy and entropy increments for length depedence of hairpin loops
@@ -544,7 +544,7 @@ fn raw_hairpin_loops() -> LoopEnergy {
         (30, (0.0, -20.3)),
     ];
 
-    LoopEnergy::from(RAW_HAIRPIN_LOOPS)
+    LoopEnergy::from_iter(RAW_HAIRPIN_LOOPS)
 }
 
 pub fn calc_dna() -> Energies {

@@ -19,7 +19,7 @@ pub fn complement() -> Comp {
         (b'N', b'N'),
     ];
 
-    Comp::from(RAW_COMPLEMENT)
+    Comp::from_iter(RAW_COMPLEMENT)
 }
 
 pub fn nn() -> BpEnergy {
@@ -753,7 +753,7 @@ pub fn internal_loops() -> LoopEnergy {
         (30, (-1.3, -16.1)),
     ];
 
-    LoopEnergy::from(RAW_INTERNAL_LOOPS)
+    LoopEnergy::from_iter(RAW_INTERNAL_LOOPS)
 }
 
 pub fn bulge_loops() -> LoopEnergy {
@@ -790,7 +790,7 @@ pub fn bulge_loops() -> LoopEnergy {
         (30, (7.1, 3.2)),
     ];
 
-    LoopEnergy::from(RAW_BULGE_LOOPS)
+    LoopEnergy::from_iter(RAW_BULGE_LOOPS)
 }
 
 fn raw_hairpin_loops() -> LoopEnergy {
@@ -827,7 +827,7 @@ fn raw_hairpin_loops() -> LoopEnergy {
         (30, (5.0, -8.7)),
     ];
 
-    LoopEnergy::from(RAW_HAIRPIN_LOOPS)
+    LoopEnergy::from_iter(RAW_HAIRPIN_LOOPS)
 }
 
 pub fn calc_rna() -> Energies {

@@ -12,7 +12,7 @@ pub use rna::rna;
 
 pub use fold::fold;
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap as HashMap;
 
 // TODO: see if we can move away from statics
 

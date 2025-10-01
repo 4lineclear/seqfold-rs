@@ -798,7 +798,7 @@ fn internal_loop(
     d_g
 }
 
-fn add_branch(
+pub fn add_branch(
     (i, j): (usize, usize),
     seq: &[u8],
     temp: f64,
@@ -1026,6 +1026,8 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
         if s_v.ij.len() > 1 {
             let mut e_sum = 0.0;
             let mut values = trackback_energy(&values);
+            let last_index = values.len() - 1;
+
             let mut branches = Vec::new();
             for &(i1, j1) in s_v.ij.iter() {
                 let tb = traceback(i1, j1, &v_cache, &w_cache);
@@ -1036,7 +1038,6 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
                 }
             }
 
-            let last_index = values.len() - 1;
             values[last_index].e = round1(values[last_index].e - e_sum);
             values.extend(branches);
 
