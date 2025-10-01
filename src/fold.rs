@@ -1,35 +1,74 @@
 //! Predict nucleic acid secondary structure
 
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt::Display};
 
 use crate::{
     Cache, Energies,
     util::{ByteStr, Matrix, ToIsize, round1, round2},
 };
 
+#[cfg(test)]
+mod test;
+
 /// A single structure with a free energy, description, and inward children.
 #[derive(Debug, Clone)]
 pub struct Value {
     pub e: f64,
-    pub desc: String,
+    pub desc: Desc,
     pub ij: Vec<(usize, usize)>,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub enum Desc {
+    Empty,
+    Bifurcation(usize, usize),
+    InteriorLoop(usize, usize),
+    Hairpin([u8; 5]),
+    Stack(Vec<u8>),
+    StackDe([u8; 5]),
+    Bulge(usize),
+}
+
+impl std::fmt::Debug for Desc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Display for Desc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Desc::Empty => write!(f, ""),
+            Desc::Bifurcation(unpaired, branches_count) => {
+                write!(f, "BIFURCATION:{unpaired}n/{branches_count}h")
+            }
+            Desc::InteriorLoop(i, j) => write!(f, "INTERIOR_LOOP:{i}/{j}"),
+            Desc::Hairpin(pair) => write!(f, "HAIRPIN:{}", ByteStr(pair)),
+            Desc::Stack(pair) => write!(f, "STACK:{}", ByteStr(pair)),
+            Desc::StackDe(pair) => write!(f, "STACK_DE:{}", ByteStr(pair)),
+            Desc::Bulge(i) => write!(f, "BULGE:{i}"),
+        }
+    }
+}
+
+/// A map from i, j tuple to a min free energy Struct.
+pub type Values = Vec<Vec<Value>>;
+
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
-        Self::new(value, String::new(), Vec::new())
+        Self::new(value, Desc::Empty, Vec::new())
     }
 }
 
 impl Value {
-    pub const NULL: Self = Self::empty(f64::INFINITY, String::new());
-    pub const DEFAULT: Self = Self::empty(f64::NEG_INFINITY, String::new());
+    pub const NULL: Self = Self::empty(f64::INFINITY, Desc::Empty);
+    pub const DEFAULT: Self = Self::empty(f64::NEG_INFINITY, Desc::Empty);
 
-    pub const fn empty(e: f64, desc: String) -> Value {
+    pub const fn empty(e: f64, desc: Desc) -> Value {
         Self::new(e, desc, Vec::new())
     }
 
-    pub const fn new(e: f64, desc: String, ij: Vec<(usize, usize)>) -> Self {
+    pub const fn new(e: f64, desc: Desc, ij: Vec<(usize, usize)>) -> Self {
         Self { e, desc, ij }
     }
 
@@ -48,9 +87,6 @@ impl PartialEq for Value {
         self.e == other.e && self.ij == other.ij
     }
 }
-
-/// A map from i, j tuple to a min free energy Struct.
-pub type Values = Vec<Vec<Value>>;
 
 /// Fold the DNA sequence and return the lowest free energy score.
 ///
@@ -294,10 +330,7 @@ pub fn v(
 
     // E1 = FH(i, j); hairpin
     let pair = calc_pair(seq, i, i + 1, j, j - 1);
-    let e1 = Value::empty(
-        hairpin(seq, i, j, temp, emap),
-        "HAIRPIN:".to_owned() + &ByteStr(pair).to_string(),
-    );
+    let e1 = Value::empty(hairpin(seq, i, j, temp, emap), Desc::Hairpin(pair));
     if j - i == 4 {
         // small hairpin; 4bp
         v_cache[i][j] = e1.clone();
@@ -332,35 +365,34 @@ pub fn v(
             if stack {
                 // it's a neighboring/stacking pair in a helix
                 e2_test = calc_stack(seq, i, i1, j, j1, temp, emap);
-                e2_test_type = format!("STACK:{}", ByteStr(pair));
+                e2_test_type = Desc::Stack(pair.to_vec());
 
                 if i > 0 && j == n - 1 || i == 0 && j < n - 1 {
                     // there's a dangling end
-                    e2_test_type = format!("STACK_DE:{}", ByteStr(pair));
+                    e2_test_type = Desc::StackDe(pair);
                 }
             } else if bulge_left && bulge_right && !pair_inner {
                 // it's an interior loop
                 e2_test = internal_loop(seq, i, i1, j, j1, temp, emap);
-                e2_test_type = format!("INTERIOR_LOOP:{}/{}", i1 - i, j - j1);
+                e2_test_type = Desc::InteriorLoop(i1 - i, j - j1);
 
                 if i1 - i == 2 && j - j1 == 2 {
-                    let loop_left = &seq[i..i1 + 1];
-                    let loop_right = &seq[j1..j + 1];
+                    let mut stack = Vec::new();
+                    stack.extend(&seq[i..i1 + 1]); // loop_left
+                    stack.push(b'/');
+                    stack.extend((&seq[j1..j + 1]).iter().rev().copied()); // loop_right
+
                     // technically an interior loop of 1. really 1bp mismatch
-                    e2_test_type = format!(
-                        "STACK:{}/{}",
-                        ByteStr(loop_left),
-                        ByteStr(loop_right.iter().copied().rev().collect::<Vec<_>>()),
-                    );
+                    e2_test_type = Desc::Stack(stack);
                 }
             } else if bulge_left && !bulge_right {
                 // it's a bulge on the left side
                 e2_test = bulge(seq, i, i1, j, j1, temp, emap);
-                e2_test_type = format!("BULGE:{}", i1 - i);
+                e2_test_type = Desc::Bulge(i1 - i);
             } else if !bulge_left && bulge_right {
                 // it's a bulge on the right side
                 e2_test = bulge(seq, i, i1, j, j1, temp, emap);
-                e2_test_type = format!("BULGE:{}", j - j1);
+                e2_test_type = Desc::Bulge(j - j1);
             } else {
                 // it's basically a hairpin, only outside bp match
                 continue;
@@ -603,6 +635,7 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
 
     let mut d_g = emap
         .tri_tetra_loops
+        .as_ref()
         .and_then(|ttl| ttl.get(hairpin))
         .map_or(0.0, |&(d_h, d_s)| calc_d_g(d_h, d_s, temp));
 
@@ -702,6 +735,7 @@ pub fn bulge(
 /// This is adapted from the "Internal Loops" section of SantaLucia/Hicks, 2004
 ///
 /// # Args
+///
 /// - seq: The sequence we're folding
 /// - i: The index of the start of structure on left side
 /// - i1: The index to the right of i
@@ -764,6 +798,32 @@ fn internal_loop(
     d_g
 }
 
+fn add_branch(
+    (i, j): (usize, usize),
+    seq: &[u8],
+    temp: f64,
+    v_cache: &mut Values,
+    w_cache: &mut Values,
+    emap: &Energies,
+    branches: &mut Vec<(usize, usize)>,
+) {
+    let this = &w_cache[i][j];
+
+    if !this.valid() || this.ij.is_empty() {
+        return;
+    }
+
+    if this.ij.len() == 1 {
+        branches.push(this.ij[0]);
+        return;
+    }
+
+    for (i1, j1) in this.ij.clone() {
+        let index = w(seq, i1, j1, temp, v_cache, w_cache, emap);
+        add_branch(index, seq, temp, v_cache, w_cache, emap, branches);
+    }
+}
+
 /// Calculate a multi-branch energy penalty using a linear formula.
 ///
 /// From Jaeger, Turner, and Zuker, 1989.
@@ -796,32 +856,6 @@ pub fn multi_branch(
     emap: &Energies,
     helix: Option<bool>,
 ) -> Value {
-    fn add_branch(
-        (i, j): (usize, usize),
-        seq: &[u8],
-        temp: f64,
-        v_cache: &mut Values,
-        w_cache: &mut Values,
-        emap: &Energies,
-        branches: &mut Vec<(usize, usize)>,
-    ) {
-        let this = &w_cache[i][j];
-
-        if !this.valid() || this.ij.is_empty() {
-            return;
-        }
-
-        if this.ij.len() == 1 {
-            branches.push(this.ij[0]);
-            return;
-        }
-
-        for (i1, j1) in this.ij.clone() {
-            let index = w(seq, i1, j1, temp, v_cache, w_cache, emap);
-            add_branch(index, seq, temp, v_cache, w_cache, emap, branches);
-        }
-    }
-
     let helix = helix.unwrap_or(false);
     let (li, lj, ri, rj) = if helix {
         (i + 1, k, k + 1, j - 1)
@@ -942,7 +976,7 @@ pub fn multi_branch(
 
     Value::new(
         e,
-        format!("BIFURCATION:{unpaired}n/{branches_count}h",),
+        Desc::Bifurcation(unpaired as usize, branches_count),
         branches,
     )
 }
@@ -956,6 +990,7 @@ pub fn multi_branch(
 /// Repeat
 ///
 /// # Args
+///
 /// - i: The leftmost index to start searching in
 /// - j: The rightmost index to start searching in
 /// - v_cache: Energies where i and j bond
@@ -967,7 +1002,7 @@ pub fn multi_branch(
 pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values) -> Vec<Value> {
     // move i,j down-left to start coordinates
     let s_w = &w_cache[i][j];
-    if !s_w.desc.contains("HAIRPIN") {
+    if !matches!(s_w.desc, Desc::Hairpin(_)) {
         while &w_cache[i + 1][j] == s_w {
             i += 1
         }
@@ -976,7 +1011,7 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
         }
     }
 
-    let mut structs = Vec::new();
+    let mut values = Vec::new();
     loop {
         // multibrach structures are only in the w_cache.
         let s_v = if s_w.ij.len() > 1 {
@@ -985,12 +1020,12 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
             &v_cache[i][j]
         };
 
-        structs.push(s_v.clone().with_ij(vec![(i, j)]));
+        values.push(s_v.clone().with_ij(vec![(i, j)]));
 
         // it's a multibranch
         if s_v.ij.len() > 1 {
             let mut e_sum = 0.0;
-            let mut values = trackback_energy(&structs);
+            let mut values = trackback_energy(&values);
             let mut branches = Vec::new();
             for &(i1, j1) in s_v.ij.iter() {
                 let tb = traceback(i1, j1, &v_cache, &w_cache);
@@ -1017,7 +1052,7 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
 
         // it's a hairpin, end of structure
         // set the energy of everything relative to the hairpin
-        break trackback_energy(&structs);
+        break trackback_energy(&values);
     }
 }
 
@@ -1040,268 +1075,4 @@ pub fn trackback_energy(vals: &[Value]) -> Vec<Value> {
             Value::new(e_corrected, v.desc.clone(), v.ij.clone())
         })
         .collect()
-}
-
-#[cfg(test)]
-mod test {
-    //! Test DNA/RNA folding.
-
-    // import unittest
-
-    use approx::assert_relative_eq;
-
-    use super::{Value, Values};
-    use crate::{dna, rna};
-
-    /// Fold function.
-    #[test]
-    #[should_panic]
-    fn test_fold_p1() {
-        // should throw if a nonsense sequence is provided
-        // with self.assertRaises(RuntimeError):
-        super::dg(b"EASFEASFAST", Some(37.0));
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_fold_p2() {
-        // U and T, mix of RNA and DNA
-        // with self.assertRaises(RuntimeError):
-        super::dg(b"ATGCATGACGATUU", Some(37.0));
-    }
-
-    #[test]
-    fn test_fold_s1() {
-        // not throw
-        super::dg(b"ATGGATTTAGATAGAT", None);
-    }
-
-    /// Gather a cache of the folded structure.
-    #[test]
-    fn test_fold_cache() {
-        let seq = b"ATGGATTTAGATAGAT";
-        let cache = super::dg_cache(seq, None);
-        let seq_dg = super::dg(seq.as_slice(), None);
-
-        assert_relative_eq!(seq_dg, cache[0][seq.len() - 1], epsilon = 1.0);
-    }
-
-    /// DNA folding to find min energy secondary structure.
-    #[test]
-    fn test_fold_dna() {
-        //'s estimates for free energy estimates of DNA oligos
-        let unafold_dgs = [
-            ("GGGAGGTCGTTACATCTGGGTAACACCGGTACTGATCCGGTGACCTCCC", -10.94), // branched structure
-            (
-                "GGGAGGTCGCTCCAGCTGGGAGGAGCGTTGGGGGTATATACCCCCAACACCGGTACTGATCCGGTGACCTCCC",
-                -23.4,
-            ), // branched structure
-            ("CGCAGGGAUACCCGCG", -3.8),
-            ("TAGCTCAGCTGGGAGAGCGCCTGCTTTGCACGCAGGAGGT", -6.85),
-            (
-                "GGGGGCATAGCTCAGCTGGGAGAGCGCCTGCTTTGCACGCAGGAGGTCTGCGGTTCGATCCCGCGCGCTCCCACCA",
-                -15.50,
-            ),
-            ("TGAGACGGAAGGGGATGATTGTCCCCTTCCGTCTCA", -18.10),
-            ("ACCCCCTCCTTCCTTGGATCAAGGGGCTCAA", -3.65),
-        ];
-
-        for (seq, ufold) in unafold_dgs {
-            let d = super::dg(seq.as_bytes(), Some(37.0));
-
-            // a 60% difference
-            let delta = (0.6 * d.min(ufold)).abs();
-            assert_relative_eq!(d, ufold, epsilon = delta);
-        }
-    }
-
-    /// RNA folding to find min energy secondary structure.
-    #[test]
-    fn test_fold_rna() {
-        //'s estimates for free energy estimates of RNA oligos
-        // tests available at https://github.com/jaswindersingh2/SPOT-RNA/blob/master/sample_inputs/batch_seq.fasta
-        let unafold_dgs = [
-            ("ACCCCCUCCUUCCUUGGAUCAAGGGGCUCAA", -9.5),
-            ("AAGGGGUUGGUCGCCUCGACUAAGCGGCUUGGAAUUCC", -10.1),
-            ("UUGGAGUACACAACCUGUACACUCUUUC", -4.3),
-            ("AGGGAAAAUCCC", -3.3),
-            ("GCUUACGAGCAAGUUAAGCAAC", -4.6),
-            (
-                "UGGGAGGUCGUCUAACGGUAGGACGGCGGACUCUGGAUCCGCUGGUGGAGGUUCGAGUCCUCCCCUCCCAGCCA",
-                -32.8,
-            ),
-            (
-                "GGGCGAUGAGGCCCGCCCAAACUGCCCUGAAAAGGGCUGAUGGCCUCUACUG",
-                -20.7,
-            ),
-            (
-                "GGGGGCAUAGCUCAGCUGGGAGAGCGCCUGCUUUGCACGCAGGAGGUCUGCGGUUCGAUCCCGCGCGCUCCCACCA",
-                -31.4,
-            ),
-            (
-                "CAGCGCGGCGGGCGGGAGUCCGGCGCGCCCUCCAUCCCCGGCGGCGUCGGCAAGGAGUAG",
-                -18.26,
-            ),
-        ];
-
-        for (seq, ufold) in unafold_dgs {
-            let d = super::dg(seq.as_bytes(), Some(37.0));
-
-            // a 30% difference
-            let delta = (0.3 * d.min(ufold)).abs();
-            assert_relative_eq!(d, ufold, epsilon = delta);
-        }
-    }
-
-    /// Get the dot bracket notation for a folded structure.
-    #[test]
-    fn test_dot_bracket() {
-        let seq = b"GGGAGGTCGTTACATCTGGGTAACACCGGTACTGATCCGGTGACCTCCC";
-        let structs = super::fold(seq, None);
-
-        assert_eq!(
-            b"((((((((.((((......))))..((((.......)))).))))))))".as_slice(),
-            super::dot_bracket(seq, &structs),
-        );
-
-        let seq = b"ACGCTCACCGTGCCCAGTGAGCGA";
-        let structs = super::fold(seq, None);
-        assert_eq!(seq.len(), super::dot_bracket(seq, &structs).len());
-    }
-
-    /// Fold a multibranch structure.
-    #[test]
-    fn test_multibranch() {
-        let seq = b"GGGAGGTCGTTACATCTGGGTAACACCGGTACTGATCCGGTGACCTCCC"; // branch
-
-        let structs = super::fold(seq, None);
-        assert!(
-            structs
-                .iter()
-                .any(|v| v.desc.contains("BIFURCATION") && v.ij.contains(&(7, 41)))
-        );
-
-        let seq = b"CAGCGCGGCGGGCGGGAGUCCGGCGCGCCCUCCAUCCCCGGCGGCGUCGGCAAGGAGUAG";
-
-        let structs = super::fold(seq, None);
-        assert!(
-            structs
-                .iter()
-                .any(|v| v.desc.contains("BIFURCATION") && v.ij.contains(&(2, 56)))
-        );
-    }
-
-    /// Create a pair for stack checking.
-    #[test]
-    fn test_pair() {
-        let seq = b"ATGGAATAGTG";
-        assert_eq!(super::calc_pair(seq, 0, 1, 9, 10).as_slice(), b"AT/TG");
-    }
-
-    /// Calc delta G of a stack.
-    #[test]
-    fn test_stack() {
-        let seq = b"GCUCAGCUGGGAGAGC";
-        let temp = 310.15;
-
-        assert_relative_eq!(
-            super::calc_stack(seq, 1, 2, 14, 13, temp, rna()),
-            -2.1,
-            epsilon = 0.1
-        );
-    }
-
-    /// Calc delta G calc of a bulge.
-    #[test]
-    fn test_bulge() {
-        // bulge of CAT on one side and AG on other
-        // pg 429 of SantaLucia, 2004
-        let seq = b"ACCCCCATCCTTCCTTGAGTCAAGGGGCTCAA";
-
-        let pair_dg = super::bulge(seq, 5, 7, 18, 17, 310.15, dna());
-        assert_relative_eq!(3.22, pair_dg, epsilon = 0.4);
-    }
-
-    /// Calc delta G of a hairpin structure.
-    #[test]
-    fn test_hairpin() {
-        // = b"CCTTGG"
-        let seq = b"ACCCCCTCCTTCCTTGGATCAAGGGGCTCAA";
-        let i = 11;
-        let j = 16;
-        let temp = 310.15;
-        let hairpin_dg = super::hairpin(seq, i, j, temp, dna());
-        // differs from Unafold
-        assert_relative_eq!(hairpin_dg, 4.3, epsilon = 1.0);
-
-        // page 428 of SantaLucia, 2004
-        // = b"CGCAAG"
-        let seq = b"ACCCGCAAGCCCTCCTTCCTTGGATCAAGGGGCTCAA";
-        let i = 3;
-        let j = 8;
-        let hairpin_dg = super::hairpin(seq, i, j, temp, dna());
-        assert_relative_eq!(0.67, hairpin_dg, epsilon = 0.1);
-
-        let seq = b"CUUUGCACG";
-        let i = 0;
-        let j = 8;
-        let hairpin_dg = super::hairpin(seq, i, j, temp, rna());
-        assert_relative_eq!(4.5, hairpin_dg, epsilon = 0.2);
-    }
-
-    /// Calc dg of an internal loop.
-    #[test]
-    fn test_internal_loop() {
-        let seq = b"ACCCCCTCCTTCCTTGGATCAAGGGGCTCAA";
-        let i = 6;
-        let j = 21;
-        let temp = 310.15;
-        let dg = super::internal_loop(seq, i, i + 4, j, j - 4, temp, dna());
-        assert_relative_eq!(dg, 3.5, epsilon = 0.1);
-    }
-
-    /// Calculate _w over some range.
-    #[test]
-    fn test_w() {
-        let seq = b"GCUCAGCUGGGAGAGC";
-        let i = 0;
-        let j = 15;
-        let temp = 310.15;
-        let mut v_cache = Values::new();
-        let mut w_cache = Values::new();
-        for _ in 0..seq.len() {
-            v_cache.push(vec![Value::DEFAULT; seq.len()]);
-            w_cache.push(vec![Value::DEFAULT; seq.len()]);
-        }
-        let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
-        let value = &w_cache[i][j];
-        assert_relative_eq!(value.e, -3.8, epsilon = 0.2);
-
-        let seq = b"CCUGCUUUGCACGCAGG";
-        let i = 0;
-        let j = 16;
-        let temp = 310.15;
-        let mut v_cache = Values::new();
-        let mut w_cache = Values::new();
-        for _ in 0..seq.len() {
-            v_cache.push(vec![Value::DEFAULT; seq.len()]);
-            w_cache.push(vec![Value::DEFAULT; seq.len()]);
-        }
-        let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
-        let value = &w_cache[i][j];
-        assert_relative_eq!(value.e, -6.4, epsilon = 0.2);
-
-        let seq = b"GCGGUUCGAUCCCGC";
-        let i = 0;
-        let j = 14;
-        let mut v_cache = Values::new();
-        let mut w_cache = Values::new();
-        for _ in 0..seq.len() {
-            v_cache.push(vec![Value::DEFAULT; seq.len()]);
-            w_cache.push(vec![Value::DEFAULT; seq.len()]);
-        }
-        let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
-        let value = &w_cache[i][j];
-        assert_relative_eq!(value.e, -4.2, epsilon = 0.2);
-    }
 }

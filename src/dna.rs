@@ -4,6 +4,8 @@ use crate::{BpEnergy, Comp, Energies, LoopEnergy, MultiBranch};
 
 use std::sync::LazyLock;
 
+// TODO: consider bpenergy computation in a LazyLock
+
 /// a, b, c, d in a linear multi-branch energy change function.
 ///
 /// Inferred from:
@@ -15,7 +17,7 @@ pub const fn multibranch() -> MultiBranch {
     (2.6, 0.2, 0.2, 2.0)
 }
 
-pub fn complement() -> &'static Comp {
+pub fn complement() -> Comp {
     pub static RAW_COMPLEMENT: [(u8, u8); 5] = [
         (b'A', b'T'),
         (b'T', b'A'),
@@ -23,14 +25,13 @@ pub fn complement() -> &'static Comp {
         (b'C', b'G'),
         (b'N', b'N'),
     ];
-    pub static COMPLEMENT: LazyLock<Comp> = LazyLock::new(|| Comp::from(RAW_COMPLEMENT));
 
-    &COMPLEMENT
+    Comp::from(RAW_COMPLEMENT)
 }
 
 /// The Thermodynamics of DNA Structural Motifs
 /// SantaLucia and Hicks, 2004
-pub fn nn() -> &'static BpEnergy {
+pub fn nn() -> BpEnergy {
     pub static RAW_NN: [(&[u8], (f64, f64)); 14] = [
         (b"init", (0.2, -5.7)),
         (b"init_G/C", (0.0, 0.0)),
@@ -48,15 +49,12 @@ pub fn nn() -> &'static BpEnergy {
         (b"GG/CC", (-8.0, -19.9)),
     ];
 
-    pub static NN: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut nn = BpEnergy::default();
-        for (s, v) in RAW_NN {
-            nn.insert(s.to_owned(), v);
-            nn.insert(s.iter().copied().rev().collect(), v);
-        }
-        nn
-    });
-    &NN
+    let mut nn = BpEnergy::default();
+    for (s, v) in RAW_NN {
+        nn.insert(s.to_owned(), v);
+        nn.insert(s.iter().copied().rev().collect(), v);
+    }
+    nn
 }
 
 /// Internal mismatch table (DNA)
@@ -65,7 +63,7 @@ pub fn nn() -> &'static BpEnergy {
 /// Allawi & SantaLucia (1998), Biochemistry 37: 2170-2179 *
 /// Allawi & SantaLucia (1998), Nucl Acids Res 26: 2694-2701 *
 /// Peyret et al. (1999), Biochemistry 38: 3468-3477 *
-pub fn internal_mm() -> &'static BpEnergy {
+pub fn internal_mm() -> BpEnergy {
     pub static RAW_INTERNAL_MM: [(&[u8], (f64, f64)); 51] = [
         (b"AG/TT", (1.0, 0.9)),
         (b"AT/TG", (-2.5, -8.3)),
@@ -120,23 +118,20 @@ pub fn internal_mm() -> &'static BpEnergy {
         (b"TT/AT", (0.2, -1.5)),
     ];
 
-    pub static INTERNAL_MM: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut internal_mm = BpEnergy::default();
-        for (s, v) in RAW_INTERNAL_MM {
-            internal_mm.insert(s.to_owned(), v);
-            let srev = s.iter().copied().rev().collect();
-            if !internal_mm.contains_key(&srev) {
-                internal_mm.insert(srev, v);
-            }
+    let mut internal_mm = BpEnergy::default();
+    for (s, v) in RAW_INTERNAL_MM {
+        internal_mm.insert(s.to_owned(), v);
+        let srev = s.iter().copied().rev().collect();
+        if !internal_mm.contains_key(&srev) {
+            internal_mm.insert(srev, v);
         }
-        internal_mm
-    });
-    &INTERNAL_MM
+    }
+    internal_mm
 }
 
 /// Terminal mismatch table (DNA)
 /// SantaLucia & Peyret (2001) Patent Application WO 01/94611
-pub fn terminal_mm() -> &'static BpEnergy {
+pub fn terminal_mm() -> BpEnergy {
     pub static RAW_TERMINAL_MM: [(&[u8], (f64, f64)); 48] = [
         (b"AA/TA", (-3.1, -7.8)),
         (b"TA/AA", (-2.5, -6.3)),
@@ -188,24 +183,21 @@ pub fn terminal_mm() -> &'static BpEnergy {
         (b"TT/AG", (-3.6, -9.8)),
     ];
 
-    pub static TERMINAL_MM: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut terminal_mm = BpEnergy::default();
-        for (s, v) in RAW_TERMINAL_MM {
-            terminal_mm.insert(s.to_owned(), v);
-            let srev = s.iter().copied().rev().collect();
-            if !terminal_mm.contains_key(&srev) {
-                terminal_mm.insert(srev, v);
-            }
+    let mut terminal_mm = BpEnergy::default();
+    for (s, v) in RAW_TERMINAL_MM {
+        terminal_mm.insert(s.to_owned(), v);
+        let srev = s.iter().copied().rev().collect();
+        if !terminal_mm.contains_key(&srev) {
+            terminal_mm.insert(srev, v);
         }
-        terminal_mm
-    });
-    &TERMINAL_MM
+    }
+    terminal_mm
 }
 
 /// DNA dangling ends
 ///
 /// Bommarito et al. (2000), Nucl Acids Res 28: 1929-1934
-pub fn de() -> &'static BpEnergy {
+pub fn de() -> BpEnergy {
     pub static RAW_DE: [(&[u8], (f64, f64)); 32] = [
         (b"AA/.T", (0.2, 2.3)),
         (b"AC/.G", (-6.3, -17.1)),
@@ -241,18 +233,15 @@ pub fn de() -> &'static BpEnergy {
         (b".T/TA", (-3.8, -12.6)),
     ];
 
-    pub static DE: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut de = BpEnergy::default();
-        for (s, v) in RAW_DE {
-            de.insert(s.to_owned(), v);
-            let srev = s.iter().copied().rev().collect();
-            if !de.contains_key(&srev) {
-                de.insert(srev, v);
-            }
+    let mut de = BpEnergy::default();
+    for (s, v) in RAW_DE {
+        de.insert(s.to_owned(), v);
+        let srev = s.iter().copied().rev().collect();
+        if !de.contains_key(&srev) {
+            de.insert(srev, v);
         }
-        de
-    });
-    &DE
+    }
+    de
 }
 
 /// Experimental delta H and delta S for tri/tetra loops
@@ -264,7 +253,7 @@ pub fn de() -> &'static BpEnergy {
 ///
 /// delta S was computed using delta G and delta H and is in cal / (K x mol)
 /// (versus delta H in kcal / mol)
-pub fn tri_tetra_loops() -> &'static BpEnergy {
+pub fn tri_tetra_loops() -> BpEnergy {
     pub static RAW_TRI_TETRA_LOOPS: [(&[u8], (f64, f64)); 131] = [
         (b"AGAAT", (-1.5, 0.0)),
         (b"AGCAT", (-1.5, 0.0)),
@@ -399,14 +388,11 @@ pub fn tri_tetra_loops() -> &'static BpEnergy {
         (b"TTTTTG", (-0.5, -1.6)),
     ];
 
-    pub static TRI_TETRA_LOOPS: LazyLock<BpEnergy> = LazyLock::new(|| {
-        BpEnergy::from_iter(
-            RAW_TRI_TETRA_LOOPS
-                .into_iter()
-                .map(|(s, v)| (s.to_owned(), v)),
-        )
-    });
-    &TRI_TETRA_LOOPS
+    BpEnergy::from_iter(
+        RAW_TRI_TETRA_LOOPS
+            .into_iter()
+            .map(|(s, v)| (s.to_owned(), v)),
+    )
 }
 
 /// Enthalpy and entropy increments for length dependence of internal loops
@@ -425,7 +411,7 @@ pub fn tri_tetra_loops() -> &'static BpEnergy {
 /// Additional correction is applied for asymmetric loops in paper:
 /// delta G (asymmetry) = |length A - length B| x 0.3 (kcal / mol)
 /// where A and B are lengths of both sides of loop
-pub fn internal_loops() -> &'static LoopEnergy {
+pub fn internal_loops() -> LoopEnergy {
     pub static RAW_INTERNAL_LOOPS: [(usize, (f64, f64)); 30] = [
         (1, (0.0, 0.0)),
         (2, (0.0, 0.0)),
@@ -459,9 +445,7 @@ pub fn internal_loops() -> &'static LoopEnergy {
         (30, (0.0, -21.3)),
     ];
 
-    pub static INTERNAL_LOOPS: LazyLock<LoopEnergy> =
-        LazyLock::new(|| LoopEnergy::from(RAW_INTERNAL_LOOPS));
-    &INTERNAL_LOOPS
+    LoopEnergy::from(RAW_INTERNAL_LOOPS)
 }
 
 /// Enthalpy and entropy increments for length depedence of bulge loops
@@ -475,7 +459,7 @@ pub fn internal_loops() -> &'static LoopEnergy {
 ///
 /// For bulge loops of size 1, the intervening NN energy is used.
 /// Closing AT penalty is applied on both sides
-pub fn bulge_loops() -> &'static LoopEnergy {
+pub fn bulge_loops() -> LoopEnergy {
     pub static RAW_BULGE_LOOPS: [(usize, (f64, f64)); 30] = [
         (1, (0.0, -12.9)),
         (2, (0.0, -9.4)),
@@ -509,9 +493,7 @@ pub fn bulge_loops() -> &'static LoopEnergy {
         (30, (0.0, -19.0)),
     ];
 
-    pub static BULGE_LOOPS: LazyLock<LoopEnergy> =
-        LazyLock::new(|| LoopEnergy::from(RAW_BULGE_LOOPS));
-    &BULGE_LOOPS
+    LoopEnergy::from(RAW_BULGE_LOOPS)
 }
 
 /// Enthalpy and entropy increments for length depedence of hairpin loops
@@ -528,7 +510,7 @@ pub fn bulge_loops() -> &'static LoopEnergy {
 ///
 /// From formula 8-9 of the paper:
 /// An additional 1.6 delta entropy penalty if the hairpin is closed by AT
-fn raw_hairpin_loops() -> &'static LoopEnergy {
+fn raw_hairpin_loops() -> LoopEnergy {
     pub static RAW_HAIRPIN_LOOPS: [(usize, (f64, f64)); 30] = [
         (1, (0.0, 0.0)),
         (2, (0.0, 0.0)),
@@ -562,13 +544,11 @@ fn raw_hairpin_loops() -> &'static LoopEnergy {
         (30, (0.0, -20.3)),
     ];
 
-    pub static HAIRPIN_LOOPS: LazyLock<LoopEnergy> =
-        LazyLock::new(|| LoopEnergy::from(RAW_HAIRPIN_LOOPS));
-    &HAIRPIN_LOOPS
+    LoopEnergy::from(RAW_HAIRPIN_LOOPS)
 }
 
-pub fn dna() -> &'static Energies {
-    pub static DNA: LazyLock<Energies> = LazyLock::new(|| Energies {
+pub fn calc_dna() -> Energies {
+    Energies {
         bulge_loops: bulge_loops(),
         complement: complement(),
         de: de(),
@@ -579,6 +559,10 @@ pub fn dna() -> &'static Energies {
         nn: nn(),
         terminal_mm: terminal_mm(),
         tri_tetra_loops: Some(tri_tetra_loops()),
-    });
+    }
+}
+
+pub fn dna() -> &'static Energies {
+    pub static DNA: LazyLock<Energies> = LazyLock::new(|| calc_dna());
     &DNA
 }

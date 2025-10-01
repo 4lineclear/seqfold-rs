@@ -4,11 +4,13 @@ use std::sync::LazyLock;
 
 use crate::{BpEnergy, Comp, Energies, LoopEnergy, MultiBranch};
 
+// TODO: consider bpenergy computation in a LazyLock
+
 pub const fn multibranch() -> MultiBranch {
     (2.5, 0.1, 0.4, 2.0)
 }
 
-pub fn complement() -> &'static Comp {
+pub fn complement() -> Comp {
     pub static RAW_COMPLEMENT: [(u8, u8); 5] = [
         (b'A', b'U'),
         (b'U', b'A'),
@@ -16,12 +18,11 @@ pub fn complement() -> &'static Comp {
         (b'C', b'G'),
         (b'N', b'N'),
     ];
-    pub static COMPLEMENT: LazyLock<Comp> = LazyLock::new(|| Comp::from(RAW_COMPLEMENT));
 
-    &COMPLEMENT
+    Comp::from(RAW_COMPLEMENT)
 }
 
-pub fn nn() -> &'static BpEnergy {
+pub fn nn() -> BpEnergy {
     pub static RAW_NN: [(&[u8], (f64, f64)); 16] = [
         (b"AA/UU", (-6.8, -19.0)),
         (b"AC/UG", (-11.4, -29.7)),
@@ -41,18 +42,15 @@ pub fn nn() -> &'static BpEnergy {
         (b"UU/AA", (-6.8, -19.0)),
     ];
 
-    pub static NN: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut nn = BpEnergy::default();
-        for (s, v) in RAW_NN {
-            nn.insert(s.to_owned(), v);
-            nn.insert(s.iter().copied().rev().collect(), v);
-        }
-        nn
-    });
-    &NN
+    let mut nn = BpEnergy::default();
+    for (s, v) in RAW_NN {
+        nn.insert(s.to_owned(), v);
+        nn.insert(s.iter().copied().rev().collect(), v);
+    }
+    nn
 }
 
-pub fn internal_mm() -> &'static BpEnergy {
+pub fn internal_mm() -> BpEnergy {
     pub static RAW_INTERNAL_MM: [(&[u8], (f64, f64)); 240] = [
         (b"AA/AA", (0.0, 0.0)),
         (b"AA/AC", (0.0, 0.0)),
@@ -296,21 +294,18 @@ pub fn internal_mm() -> &'static BpEnergy {
         (b"UU/UU", (0.0, 0.0)),
     ];
 
-    pub static INTERNAL_MM: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut internal_mm = BpEnergy::default();
-        for (s, v) in RAW_INTERNAL_MM {
-            internal_mm.insert(s.to_owned(), v);
-            let srev = s.iter().copied().rev().collect();
-            if !internal_mm.contains_key(&srev) {
-                internal_mm.insert(srev, v);
-            }
+    let mut internal_mm = BpEnergy::default();
+    for (s, v) in RAW_INTERNAL_MM {
+        internal_mm.insert(s.to_owned(), v);
+        let srev = s.iter().copied().rev().collect();
+        if !internal_mm.contains_key(&srev) {
+            internal_mm.insert(srev, v);
         }
-        internal_mm
-    });
-    &INTERNAL_MM
+    }
+    internal_mm
 }
 
-pub fn terminal_mm() -> &'static BpEnergy {
+pub fn terminal_mm() -> BpEnergy {
     pub static RAW_TERMINAL_MM: [(&[u8], (f64, f64)); 256] = [
         (b"AA/AA", (0.0, 0.0)),
         (b"AA/AC", (0.0, 0.0)),
@@ -570,21 +565,18 @@ pub fn terminal_mm() -> &'static BpEnergy {
         (b"UU/UU", (0.0, 0.0)),
     ];
 
-    pub static TERMINAL_MM: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut terminal_mm = BpEnergy::default();
-        for (s, v) in RAW_TERMINAL_MM {
-            terminal_mm.insert(s.to_owned(), v);
-            let srev = s.iter().copied().rev().collect();
-            if !terminal_mm.contains_key(&srev) {
-                terminal_mm.insert(srev, v);
-            }
+    let mut terminal_mm = BpEnergy::default();
+    for (s, v) in RAW_TERMINAL_MM {
+        terminal_mm.insert(s.to_owned(), v);
+        let srev = s.iter().copied().rev().collect();
+        if !terminal_mm.contains_key(&srev) {
+            terminal_mm.insert(srev, v);
         }
-        terminal_mm
-    });
-    &TERMINAL_MM
+    }
+    terminal_mm
 }
 
-pub fn de() -> &'static BpEnergy {
+pub fn de() -> BpEnergy {
     pub static RAW_DE: [(&[u8], (f64, f64)); 128] = [
         (b"AA/A.", (0.0, 0.0)),
         (b"AC/A.", (0.0, 0.0)),
@@ -716,21 +708,18 @@ pub fn de() -> &'static BpEnergy {
         (b"U./UU", (0.0, 0.0)),
     ];
 
-    pub static DE: LazyLock<BpEnergy> = LazyLock::new(|| {
-        let mut de = BpEnergy::default();
-        for (s, v) in RAW_DE {
-            de.insert(s.to_owned(), v);
-            let srev = s.iter().copied().rev().collect();
-            if !de.contains_key(&srev) {
-                de.insert(srev, v);
-            }
+    let mut de = BpEnergy::default();
+    for (s, v) in RAW_DE {
+        de.insert(s.to_owned(), v);
+        let srev = s.iter().copied().rev().collect();
+        if !de.contains_key(&srev) {
+            de.insert(srev, v);
         }
-        de
-    });
-    &DE
+    }
+    de
 }
 
-pub fn internal_loops() -> &'static LoopEnergy {
+pub fn internal_loops() -> LoopEnergy {
     pub static RAW_INTERNAL_LOOPS: [(usize, (f64, f64)); 30] = [
         (1, (0.0, 0.0)),
         (2, (0.0, 0.0)),
@@ -764,12 +753,10 @@ pub fn internal_loops() -> &'static LoopEnergy {
         (30, (-1.3, -16.1)),
     ];
 
-    pub static INTERNAL_LOOPS: LazyLock<LoopEnergy> =
-        LazyLock::new(|| LoopEnergy::from(RAW_INTERNAL_LOOPS));
-    &INTERNAL_LOOPS
+    LoopEnergy::from(RAW_INTERNAL_LOOPS)
 }
 
-pub fn bulge_loops() -> &'static LoopEnergy {
+pub fn bulge_loops() -> LoopEnergy {
     pub static RAW_BULGE_LOOPS: [(usize, (f64, f64)); 30] = [
         (1, (10.6, 21.9)),
         (2, (7.1, 13.9)),
@@ -803,12 +790,10 @@ pub fn bulge_loops() -> &'static LoopEnergy {
         (30, (7.1, 3.2)),
     ];
 
-    pub static BULGE_LOOPS: LazyLock<LoopEnergy> =
-        LazyLock::new(|| LoopEnergy::from(RAW_BULGE_LOOPS));
-    &BULGE_LOOPS
+    LoopEnergy::from(RAW_BULGE_LOOPS)
 }
 
-fn raw_hairpin_loops() -> &'static LoopEnergy {
+fn raw_hairpin_loops() -> LoopEnergy {
     pub static RAW_HAIRPIN_LOOPS: [(usize, (f64, f64)); 30] = [
         (1, (0.0, 0.0)),
         (2, (0.0, 0.0)),
@@ -842,13 +827,11 @@ fn raw_hairpin_loops() -> &'static LoopEnergy {
         (30, (5.0, -8.7)),
     ];
 
-    pub static HAIRPIN_LOOPS: LazyLock<LoopEnergy> =
-        LazyLock::new(|| LoopEnergy::from(RAW_HAIRPIN_LOOPS));
-    &HAIRPIN_LOOPS
+    LoopEnergy::from(RAW_HAIRPIN_LOOPS)
 }
 
-pub fn rna() -> &'static Energies {
-    pub static RNA: LazyLock<Energies> = LazyLock::new(|| Energies {
+pub fn calc_rna() -> Energies {
+    Energies {
         bulge_loops: bulge_loops(),
         complement: complement(),
         de: de(),
@@ -859,6 +842,10 @@ pub fn rna() -> &'static Energies {
         nn: nn(),
         terminal_mm: terminal_mm(),
         tri_tetra_loops: None,
-    });
+    }
+}
+
+pub fn rna() -> &'static Energies {
+    pub static RNA: LazyLock<Energies> = LazyLock::new(|| calc_rna());
     &RNA
 }
