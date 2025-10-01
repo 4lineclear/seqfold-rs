@@ -17,5 +17,6 @@ fn main() {
     let args = Args::parse();
     let values = seqfold_rs::fold(args.seq.as_bytes(), args.temp);
     let mfe: f64 = values.iter().map(|v| v.e).sum();
+
     println!("{mfe:.2}");
 }

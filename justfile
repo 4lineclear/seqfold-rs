@@ -9,4 +9,3 @@ time-core:
     cargo build -r -p seqfold && \
     /usr/bin/time -v \
         ./target/release/seqfold {{SEQ}}
-
