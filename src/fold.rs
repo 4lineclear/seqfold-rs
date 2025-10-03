@@ -1,6 +1,6 @@
 //! Predict nucleic acid secondary structure
 
-use std::{collections::HashSet, fmt::Display};
+use std::fmt::Display;
 
 use crate::{
     Cache, Energies,
@@ -51,8 +51,7 @@ impl Display for Desc {
     }
 }
 
-/// A map from i, j tuple to a min free energy Struct.
-pub type Values = Vec<Vec<Value>>;
+impl std::error::Error for Desc {}
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
@@ -88,6 +87,34 @@ impl PartialEq for Value {
     }
 }
 
+/// A map from i, j tuple to a min free energy Struct.
+pub struct Values {
+    /// - v_cache: Values of energies where V(i,j) bond
+    v: Vec<Vec<Value>>,
+    /// - w_cache: Values of min energy of substructures between W(i,j)
+    w: Vec<Vec<Value>>,
+}
+
+impl Values {
+    pub fn new(n: usize) -> Self {
+        Values {
+            v: vec![vec![Value::DEFAULT; n]; n],
+            w: vec![vec![Value::DEFAULT; n]; n],
+        }
+    }
+}
+
+pub type SeqResult<T> = Result<T, SeqError>;
+
+/// An invalid sequence was inputted.
+#[derive(Debug)]
+pub enum SeqError {
+    /// Both T and U in sequence. Provide one or the other for DNA OR RNA.
+    DnaOrRna,
+    /// Unknown bp encountered.
+    UnknownBp(String),
+}
+
 /// Fold the DNA sequence and return the lowest free energy score.
 ///
 /// Based on the approach described in:
@@ -108,11 +135,16 @@ impl PartialEq for Value {
 ///
 /// - [`Vec<Value>`]: A list of structures. Stacks, bulges, hairpins, etc.
 pub fn fold(seq: &[u8], temp: Option<f64>) -> Vec<Value> {
-    let (v_cache, w_cache) = cache(seq, temp);
+    try_fold(seq, temp).expect("Invalid Sequence Inputted")
+}
+
+/// A non-panicing version of [`fold`]
+pub fn try_fold(seq: &[u8], temp: Option<f64>) -> SeqResult<Vec<Value>> {
+    let cache = cache(seq, temp)?;
     let n = seq.len();
 
     // get the minimum free energy structure out of the cache
-    traceback(0, n - 1, &v_cache, &w_cache)
+    Ok(traceback(0, n - 1, &cache))
 }
 
 /// Fold the sequence and return just the delta G of the structure
@@ -126,9 +158,14 @@ pub fn fold(seq: &[u8], temp: Option<f64>) -> Vec<Value> {
 ///
 /// - [`f64`]: The minimum free energy of the folded sequence
 pub fn dg(seq: &[u8], temp: Option<f64>) -> f64 {
-    let values: Vec<Value> = fold(seq, temp);
+    try_dg(seq, temp).expect("Invalid Sequence Inputted")
+}
+
+/// A non-panicing version of [`dg`]
+pub fn try_dg(seq: &[u8], temp: Option<f64>) -> SeqResult<f64> {
+    let values: Vec<Value> = try_fold(seq, temp)?;
     let dg_sum = values.iter().map(|v| v.e).sum();
-    round2(dg_sum)
+    Ok(round2(dg_sum))
 }
 
 /// Fold a nucleic acid sequence and return the estimated dg of each (i,j) pairing.
@@ -141,13 +178,18 @@ pub fn dg(seq: &[u8], temp: Option<f64>) -> f64 {
 /// # Returns
 ///
 /// - [`Cache`]: A 2D matrix where each (i, j) pairing corresponds to the
-///              minimum free energy between i and j
+///   minimum free energy between i and j
 pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> Cache {
-    cache(seq, temp)
-        .1
+    try_dg_cache(seq, temp).expect("Invalid Sequence Inputted")
+}
+
+/// A non-panicing version of [`dg_cache`]
+pub fn try_dg_cache(seq: &[u8], temp: Option<f64>) -> SeqResult<Cache> {
+    Ok(cache(seq, temp)?
+        .w
         .into_iter()
         .map(|row| row.into_iter().map(|v| v.e).collect())
-        .collect()
+        .collect())
 }
 
 /// Get the dot bracket notation for a secondary structure.
@@ -184,43 +226,41 @@ pub fn dot_bracket(seq: &[u8], values: &[Value]) -> Vec<u8> {
 /// # Returns
 ///
 /// - [`(Values, Values)`]: The w_cache and the v_cache for traversal later
-pub fn cache(seq: &[u8], temp: Option<f64>) -> (Values, Values) {
-    let temp = temp.unwrap_or(37.0);
+pub fn cache(seq: &[u8], temp: Option<f64>) -> SeqResult<Values> {
+    let temp = temp.unwrap_or(37.0) + 273.15; // kelvin
 
+    let (seq, emap) = parse_sequence(seq)?;
+
+    let n = seq.len();
+    let mut cache = Values::new(n);
+    // fill the cache
+    w(&seq, 0, n - 1, temp, &mut cache, emap);
+    Ok(cache)
+}
+
+fn parse_sequence(seq: &[u8]) -> SeqResult<(Vec<u8>, &'static Energies)> {
     let seq = seq.to_ascii_uppercase();
-    let temp = temp + 273.15; // kelvin
-
     // figure out whether it's DNA or RNA, choose energy map
     let mut dna = true;
-    let bps = seq.iter().copied().collect::<HashSet<_>>();
+
+    let bps: rustc_hash::FxHashSet<_> = seq.iter().copied().collect();
+
     if bps.contains(&b'U') && bps.contains(&b'T') {
-        panic!("Both T and U in sequence. Provide one or the other for DNA OR RNA.");
+        return Err(SeqError::DnaOrRna);
     }
+
     if bps.iter().all(|b| b"AUCG".contains(b)) {
         dna = false;
     } else if bps.iter().any(|b| !b"ATGC".contains(b)) {
-        panic!(
-            "Unknown bp: {}. Only DNA/RNA foldable",
+        return Err(SeqError::UnknownBp(
             bps.iter()
                 .filter(|b| !b"ATGC".contains(b))
                 .map(|b| *b as char)
-                .collect::<String>()
-        );
-    }
-    let emap = if dna { crate::dna() } else { crate::rna() };
-
-    let n = seq.len();
-    let mut v_cache = Values::new();
-    let mut w_cache = Values::new();
-    for _ in 0..n {
-        v_cache.push(vec![Value::DEFAULT; n]);
-        w_cache.push(vec![Value::DEFAULT; n]);
+                .collect::<String>(),
+        ));
     }
 
-    // fill the cache
-    w(&seq, 0, n - 1, temp, &mut v_cache, &mut w_cache, emap);
-
-    (v_cache, w_cache)
+    Ok((seq, if dna { crate::dna() } else { crate::rna() }))
 }
 
 /// Find and return the lowest free energy structure in Sij subsequence
@@ -233,8 +273,7 @@ pub fn cache(seq: &[u8], temp: Option<f64>) -> (Values, Values) {
 /// - i: The start index
 /// - j: The end index (inclusive)
 /// - temp: The temperature in Kelvin
-/// - v_cache: Free energy cache for if i and j bp
-/// - w_cache: Free energy cache for lowest energy structure from i to j. 0 otherwise
+/// - cache: Combined free energy cache
 ///
 /// # Returns
 ///
@@ -244,36 +283,35 @@ pub fn w(
     i: usize,
     j: usize,
     temp: f64,
-    v_cache: &mut Values,
-    w_cache: &mut Values,
+    cache: &mut Values,
     emap: &Energies,
 ) -> (usize, usize) {
-    if w_cache[i][j] != Value::DEFAULT {
+    if cache.w[i][j] != Value::DEFAULT {
         return (i, j);
     }
 
     if j - i < 4 {
-        w_cache[i][j] = Value::NULL;
+        cache.w[i][j] = Value::NULL;
         return (i, j);
     }
 
-    let w1 = w(seq, i + 1, j, temp, v_cache, w_cache, emap);
-    let w2 = w(seq, i, j - 1, temp, v_cache, w_cache, emap);
-    let w3 = v(seq, i, j, temp, v_cache, w_cache, emap);
+    let w1 = w(seq, i + 1, j, temp, cache, emap);
+    let w2 = w(seq, i, j - 1, temp, cache, emap);
+    let w3 = v(seq, i, j, temp, cache, emap);
 
     let mut w4 = Value::NULL;
     for k in i + 1..j - 1 {
-        let w4_test = multi_branch(seq, i, k, j, temp, v_cache, w_cache, emap, Some(false));
+        let w4_test = multi_branch(seq, i, k, j, temp, cache, emap, false);
 
         if w4_test.valid() && w4_test.e < w4.e {
             w4 = w4_test;
         }
     }
 
-    let w = Matrix(&*w_cache);
-    let v = Matrix(&*v_cache);
+    let w = Matrix(&cache.w);
+    let v = Matrix(&cache.v);
     let min_value = min_value([&w[w1], &w[w2], &v[w3], &w4]);
-    w_cache[i][j] = min_value;
+    cache.w[i][j] = min_value;
     (i, j)
 }
 
@@ -288,8 +326,7 @@ pub fn w(
 /// - i: The start index
 /// - j: The end index (inclusive)
 /// - temp: The temperature in Kelvin
-/// - v_cache: Free energy cache for if i and j bp. INF otherwise
-/// - w_cache: Free energy cache for lowest energy structure from i to j. 0 otherwise
+/// - cache: Combined free energy cache
 /// - emap: Energy map for DNA/RNA
 ///
 /// # Returns
@@ -300,17 +337,16 @@ pub fn v(
     i: usize,
     j: usize,
     temp: f64,
-    v_cache: &mut Values,
-    w_cache: &mut Values,
+    cache: &mut Values,
     emap: &Energies,
 ) -> (usize, usize) {
-    if v_cache[i][j] != Value::DEFAULT {
+    if cache.v[i][j] != Value::DEFAULT {
         return (i, j);
     }
 
     // the ends must basepair for V(i,j)
-    if emap.complement[&seq[i]] != seq[j] {
-        v_cache[i][j] = Value::NULL;
+    if emap.complement[seq[i]] != seq[j] {
+        cache.v[i][j] = Value::NULL;
         return (i, j);
     }
 
@@ -319,12 +355,12 @@ pub fn v(
     // from https://www.ncbi.nlm.nih.gov/pubmed/10329189
     let mut isolated_outer = true;
     if i != 0 && j < seq.len() - 1 {
-        isolated_outer = emap.complement[&seq[i - 1]] != seq[j + 1];
+        isolated_outer = emap.complement[seq[i - 1]] != seq[j + 1];
     }
-    let isolated_inner = emap.complement[&seq[i + 1]] != seq[j - 1];
+    let isolated_inner = emap.complement[seq[i + 1]] != seq[j - 1];
 
     if isolated_outer && isolated_inner {
-        v_cache[i][j] = Value::from(1600.0);
+        cache.v[i][j] = Value::from(1600.0);
         return (i, j);
     }
 
@@ -333,8 +369,8 @@ pub fn v(
     let e1 = Value::empty(hairpin(seq, i, j, temp, emap), Desc::Hairpin(pair));
     if j - i == 4 {
         // small hairpin; 4bp
-        v_cache[i][j] = e1.clone();
-        w_cache[i][j] = e1;
+        cache.v[i][j] = e1.clone();
+        cache.w[i][j] = e1;
         return (i, j);
     }
 
@@ -346,15 +382,13 @@ pub fn v(
     for i1 in i + 1..j - 4 {
         for j1 in i1 + 4..j {
             // i1 and j1 must match
-            if emap.complement[&seq[i1]] != seq[j1] {
+            if emap.complement[seq[i1]] != seq[j1] {
                 continue;
             }
 
             let pair = calc_pair(seq, i, i1, j, j1);
             let pair_left = calc_pair(seq, i, i + 1, j, j - 1);
             let pair_right = calc_pair(seq, i1 - 1, i1, j1 + 1, j1);
-            let pair_left = pair_left.as_slice();
-            let pair_right = pair_right.as_slice();
             let pair_inner = emap.nn.contains_key(pair_left) || emap.nn.contains_key(pair_right);
 
             let stack = i1 == i + 1 && j1 == j - 1;
@@ -380,7 +414,7 @@ pub fn v(
                     let mut stack = Vec::new();
                     stack.extend(&seq[i..i1 + 1]); // loop_left
                     stack.push(b'/');
-                    stack.extend((&seq[j1..j + 1]).iter().rev().copied()); // loop_right
+                    stack.extend(seq[j1..j + 1].iter().rev().copied()); // loop_right
 
                     // technically an interior loop of 1. really 1bp mismatch
                     e2_test_type = Desc::Stack(stack);
@@ -398,8 +432,8 @@ pub fn v(
                 continue;
             }
 
-            let (i, j) = v(seq, i1, j1, temp, v_cache, w_cache, emap);
-            e2_test += v_cache[i][j].e;
+            let (i, j) = v(seq, i1, j1, temp, cache, emap);
+            e2_test += cache.v[i][j].e;
             if e2_test != f64::NEG_INFINITY && e2_test < e2.e {
                 e2 = Value::new(e2_test, e2_test_type, vec![(i1, j1)]);
             }
@@ -410,7 +444,7 @@ pub fn v(
     let mut e3 = Value::NULL;
     if isolated_outer || i != 0 || j == seq.len() - 1 {
         for k in i + 1..j - 1 {
-            let e3_test = multi_branch(seq, i, k, j, temp, v_cache, w_cache, emap, Some(true));
+            let e3_test = multi_branch(seq, i, k, j, temp, cache, emap, true);
 
             if e3_test.valid() && e3_test.e < e3.e {
                 e3 = e3_test
@@ -418,7 +452,7 @@ pub fn v(
         }
     }
 
-    v_cache[i][j] = min_value([&e1, &e2, &e3]);
+    cache.v[i][j] = min_value([&e1, &e2, &e3]);
     (i, j)
 }
 
@@ -502,7 +536,7 @@ pub fn calc_d_g(d_h: f64, d_s: f64, temp: f64) -> f64 {
 /// # Returns
 ///
 /// - [`f64`]: The free energy for a structure of length query_len
-fn calc_j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
+pub fn calc_j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
     let gas_constant = 1.9872e-3;
     d_g_x + 2.44 * gas_constant * temp * (query_len as f64 / known_len as f64).ln()
 }
@@ -529,7 +563,7 @@ fn calc_j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f64 {
 /// # Returns
 ///
 /// - [`f64`]: The free energy of the NN pairing
-fn calc_stack(
+pub fn calc_stack(
     seq: &[u8],
     i: impl ToIsize,
     i1: impl ToIsize,
@@ -545,65 +579,43 @@ fn calc_stack(
 
     let pair = calc_pair(seq, i, i1, j, j1);
 
-    if [i, i1, j, j1].iter().any(|&x| x as isize == -1) {
+    if [i, i1, j, j1].contains(&-1) {
         // it's a dangling end
-        let (d_h, d_s) = emap.de[pair.as_slice()];
+        let (d_h, d_s) = emap.de[pair];
         return calc_d_g(d_h, d_s, temp);
     }
     let (i, j) = (i as usize, j as usize);
 
     if i > 0 && j < seq.len() - 1 {
         // it's internal
-        let &(d_h, d_s) = emap
-            .nn
-            .get(pair.as_slice())
-            .unwrap_or_else(|| &emap.internal_mm[pair.as_slice()]);
+        let (d_h, d_s) = emap.nn.get(pair).unwrap_or_else(|| emap.internal_mm[pair]);
         // d_h, d_s = emap.NN[pair] if pair in emap.NN else emap.INTERNAL_MM[pair]
         return calc_d_g(d_h, d_s, temp);
     }
 
+    let (d_h, d_s) = emap.nn.get(pair).unwrap_or_else(|| emap.terminal_mm[pair]);
+    let mut d_g = calc_d_g(d_h, d_s, temp);
+
     if i == 0 && j == seq.len() - 1 {
         // it's terminal
-        let &(d_h, d_s) = emap
-            .nn
-            .get(pair.as_slice())
-            .unwrap_or_else(|| &emap.terminal_mm[pair.as_slice()]);
-        return calc_d_g(d_h, d_s, temp);
-    }
-
-    if i > 0 && j == seq.len() - 1 {
+        d_g
+    } else if i > 0 && j == seq.len() - 1 {
         // it's dangling on left
-        let &(d_h, d_s) = emap
-            .nn
-            .get(pair.as_slice())
-            .unwrap_or_else(|| &emap.terminal_mm[pair.as_slice()]);
-        let mut d_g = calc_d_g(d_h, d_s, temp);
-
         let pair_de = [seq[i - 1], seq[i], b'/', b'.', seq[j]];
-        if emap.de.contains_key(pair_de.as_slice()) {
-            let (d_h, d_s) = emap.de[pair_de.as_slice()];
+        if let Some((d_h, d_s)) = emap.de.get(pair_de) {
             d_g += calc_d_g(d_h, d_s, temp);
         }
-        return d_g;
-    }
-
-    if i == 0 && j < seq.len() - 1 {
+        d_g
+    } else if i == 0 && j < seq.len() - 1 {
         // it's dangling on right
-        let &(d_h, d_s) = emap
-            .nn
-            .get(pair.as_slice())
-            .unwrap_or_else(|| &emap.terminal_mm[pair.as_slice()]);
-        let mut d_g = calc_d_g(d_h, d_s, temp);
-
         let pair_de = [b'.', seq[i], b'/', seq[j + 1], seq[j]];
-        if emap.de.contains_key(pair_de.as_slice()) {
-            let (d_h, d_s) = emap.de[pair_de.as_slice()];
+        if let Some((d_h, d_s)) = emap.de.get(pair_de) {
             d_g += calc_d_g(d_h, d_s, temp);
         }
-        return d_g;
+        d_g
+    } else {
+        0.0
     }
-
-    0.0
 }
 
 /// Calculate the free energy of a hairpin.
@@ -628,7 +640,7 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
     let hairpin_len = hairpin.len() - 2;
     let pair = calc_pair(seq, i, i + 1, j, j - 1);
 
-    if emap.complement[&hairpin[0]] != hairpin[hairpin.len() - 1] {
+    if emap.complement[hairpin[0]] != hairpin[hairpin.len() - 1] {
         // not known terminal pair, nothing to close "hairpin"
         panic!()
     }
@@ -636,26 +648,17 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
     let mut d_g = emap
         .tri_tetra_loops
         .as_ref()
-        .and_then(|ttl| ttl.get(hairpin))
-        .map_or(0.0, |&(d_h, d_s)| calc_d_g(d_h, d_s, temp));
+        .and_then(|ttl| ttl.get(<[u8; 6]>::try_from(hairpin).ok()?))
+        .map_or(0.0, |(d_h, d_s)| calc_d_g(d_h, d_s, temp));
 
     // add penalty based on size
-    if emap.hairpin_loops.contains_key(&hairpin_len) {
-        let (d_h, d_s) = emap.hairpin_loops[&hairpin_len];
-        d_g += calc_d_g(d_h, d_s, temp);
-    } else {
-        // it's too large, extrapolate
-        let (d_h, d_s) = emap.hairpin_loops[&30];
-        let d_g_inc = calc_d_g(d_h, d_s, temp);
-        d_g += calc_j_s(hairpin_len, 30, d_g_inc, temp);
-    }
+    d_g += emap.hairpin_loops.get(hairpin_len, temp);
 
     // add penalty for a terminal mismatch
-    if hairpin_len > 3 && emap.terminal_mm.contains_key(pair.as_slice()) {
-        if emap.terminal_mm.contains_key(pair.as_slice()) {
-            let (d_h, d_s) = emap.terminal_mm[pair.as_slice()];
-            d_g += calc_d_g(d_h, d_s, temp);
-        }
+    if hairpin_len > 3
+        && let Some((d_h, d_s)) = emap.terminal_mm.get(pair)
+    {
+        d_g += calc_d_g(d_h, d_s, temp);
     }
 
     // add penalty if length 3 and AT closing, formula 8 from SantaLucia, 2004
@@ -684,38 +687,28 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
 /// - [`f64`]: The increment in free energy from the bulge
 pub fn bulge(
     seq: &[u8],
-    i: impl ToIsize,
-    i1: impl ToIsize,
-    j: impl ToIsize,
-    j1: impl ToIsize,
+    i: usize,
+    i1: usize,
+    j: usize,
+    j1: usize,
     temp: f64,
     emap: &Energies,
 ) -> f64 {
-    let (i, i1, j, j1) = (i.to_isize(), i1.to_isize(), j.to_isize(), j1.to_isize());
     let loop_len = (i1 - i - 1).max(j - j1 - 1);
     assert!(loop_len > 0, "Loop len can't be <= 0: {loop_len}");
-    let loop_len = loop_len as usize;
 
     // add penalty based on size
-    let mut d_g = if emap.bulge_loops.contains_key(&loop_len) {
-        let (d_h, d_s) = emap.bulge_loops[&loop_len];
-        calc_d_g(d_h, d_s, temp)
-    } else {
-        // it's too large for pre-calculated list, extrapolate
-        let (d_h, d_s) = emap.bulge_loops[&30];
-        let d_g = calc_d_g(d_h, d_s, temp);
-        calc_j_s(loop_len, 30, d_g, temp)
-    };
+    let mut d_g = emap.bulge_loops.get(loop_len, temp);
 
     if loop_len == 1 {
         // if len 1, include the delta G of intervening NN (SantaLucia 2004)
         let pair = calc_pair(seq, i, i1, j, j1);
-        assert!(emap.nn.contains_key(pair.as_slice()));
+        assert!(emap.nn.contains_key(pair));
         d_g += calc_stack(seq, i, i1, j, j1, temp, emap);
     }
 
     // penalize AT terminal bonds
-    if [i, i1, j, j1].iter().any(|&k| seq[k as usize] == b'A') {
+    if [i, i1, j, j1].iter().any(|&k| seq[k] == b'A') {
         d_g += 0.5
     }
 
@@ -747,7 +740,7 @@ pub fn bulge(
 /// # Returns
 ///
 /// - [`f64`]: The free energy associated with the internal loop
-fn internal_loop(
+pub fn internal_loop(
     seq: &[u8],
     i: usize,
     i1: usize,
@@ -772,15 +765,7 @@ fn internal_loop(
     }
 
     // apply a penalty based on loop size
-    let mut d_g = if emap.internal_loops.contains_key(&loop_len) {
-        let (d_h, d_s) = emap.internal_loops[&loop_len];
-        calc_d_g(d_h, d_s, temp)
-    } else {
-        // it's too large an internal loop, extrapolate
-        let (d_h, d_s) = emap.internal_loops[&30];
-        let d_g = calc_d_g(d_h, d_s, temp);
-        calc_j_s(loop_len, 30, d_g, temp)
-    };
+    let mut d_g = emap.internal_loops.get(loop_len, temp);
 
     // apply an asymmetry penalty
     let loop_asymmetry = loop_left.abs_diff(loop_right);
@@ -788,11 +773,11 @@ fn internal_loop(
 
     // apply penalty based on the mismatching pairs on either side of the loop
     let pair_left_mm = calc_pair(seq, i, i + 1, j, j - 1);
-    let (d_h, d_s) = emap.terminal_mm[pair_left_mm.as_slice()];
+    let (d_h, d_s) = emap.terminal_mm[pair_left_mm];
     d_g += calc_d_g(d_h, d_s, temp);
 
     let pair_right_mm = calc_pair(seq, i1 - 1, i1, j1 + 1, j1);
-    let (d_h, d_s) = emap.terminal_mm[pair_right_mm.as_slice()];
+    let (d_h, d_s) = emap.terminal_mm[pair_right_mm];
     d_g += calc_d_g(d_h, d_s, temp);
 
     d_g
@@ -802,12 +787,11 @@ pub fn add_branch(
     (i, j): (usize, usize),
     seq: &[u8],
     temp: f64,
-    v_cache: &mut Values,
-    w_cache: &mut Values,
+    cache: &mut Values,
     emap: &Energies,
     branches: &mut Vec<(usize, usize)>,
 ) {
-    let this = &w_cache[i][j];
+    let this = &cache.w[i][j];
 
     if !this.valid() || this.ij.is_empty() {
         return;
@@ -819,8 +803,8 @@ pub fn add_branch(
     }
 
     for (i1, j1) in this.ij.clone() {
-        let index = w(seq, i1, j1, temp, v_cache, w_cache, emap);
-        add_branch(index, seq, temp, v_cache, w_cache, emap, branches);
+        let index = w(seq, i1, j1, temp, cache, emap);
+        add_branch(index, seq, temp, cache, emap, branches);
     }
 }
 
@@ -836,8 +820,7 @@ pub fn add_branch(
 /// - k: The mid-point in the search
 /// - j: The right ending index
 /// - temp: Folding temp
-/// - v_cache: Values of energies where V(i,j) bond
-/// - w_cache: Values of min energy of substructures between W(i,j)
+/// - cache: Combined free energy cache
 /// - helix: Whether this multibranch is enclosed by a helix
 /// - emap: Map to DNA/RNA energies
 /// - helix: Whether V(i, j) bond with one another in a helix
@@ -851,32 +834,23 @@ pub fn multi_branch(
     k: usize,
     j: usize,
     temp: f64,
-    v_cache: &mut Values,
-    w_cache: &mut Values,
+    cache: &mut Values,
     emap: &Energies,
-    helix: Option<bool>,
+    helix: bool,
 ) -> Value {
-    let helix = helix.unwrap_or(false);
-    let (li, lj, ri, rj) = if helix {
-        (i + 1, k, k + 1, j - 1)
-    } else {
-        (i, k, k + 1, j)
-    };
-    let (li, lj) = w(seq, li, lj, temp, v_cache, w_cache, emap);
-    let (ri, rj) = w(seq, ri, rj, temp, v_cache, w_cache, emap);
+    let (li, rj) = if helix { (i + 1, j - 1) } else { (i, j) };
+    let (li, lj) = w(seq, li, k, temp, cache, emap);
+    let (ri, rj) = w(seq, k + 1, rj, temp, cache, emap);
 
-    let left = &w_cache[li][lj];
-    let right = &w_cache[ri][rj];
-
-    if !left.valid() || !right.valid() {
+    if !cache.w[li][lj].valid() || !cache.w[ri][rj].valid() {
         return Value::NULL;
     }
 
     // gather all branches of this multi-branch structure
     let mut branches = Vec::new();
 
-    add_branch((li, lj), seq, temp, v_cache, w_cache, emap, &mut branches);
-    add_branch((ri, rj), seq, temp, v_cache, w_cache, emap, &mut branches);
+    add_branch((li, lj), seq, temp, cache, emap, &mut branches);
+    add_branch((ri, rj), seq, temp, cache, emap, &mut branches);
 
     // this isn't multi-branched
     if branches.len() < 2 {
@@ -906,7 +880,7 @@ pub fn multi_branch(
         let [i2, i3, j1, j2, j3] = [i2, i3, j1, j2, j3].map(|n| n as isize);
 
         if index == branches.len() - 1 && !helix {
-            (); // do nothing
+            // do nothing
         } else if (i3, j3) == (i as isize, j as isize) {
             unpaired_left = i2 - j1 - 1;
             unpaired_right = j3 - j2 - 1;
@@ -951,8 +925,8 @@ pub fn multi_branch(
 
         if (i2, j2) != (i as isize, j as isize) {
             // add energy
-            let (i, j) = w(seq, i2 as usize, j2 as usize, temp, v_cache, w_cache, emap);
-            e_sum += w_cache[i][j].e;
+            let (i, j) = w(seq, i2 as usize, j2 as usize, temp, cache, emap);
+            e_sum += cache.w[i][j].e;
         }
     }
 
@@ -993,20 +967,19 @@ pub fn multi_branch(
 ///
 /// - i: The leftmost index to start searching in
 /// - j: The rightmost index to start searching in
-/// - v_cache: Energies where i and j bond
-/// - w_cache: Energies/sub-structures between or with i and j
+/// - cache: Combined free energy cache
 ///
 /// # Returns
 ///
 /// - A list of Values in the final secondary structure
-pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values) -> Vec<Value> {
+pub fn traceback(mut i: usize, mut j: usize, cache: &Values) -> Vec<Value> {
     // move i,j down-left to start coordinates
-    let s_w = &w_cache[i][j];
+    let s_w = &cache.w[i][j];
     if !matches!(s_w.desc, Desc::Hairpin(_)) {
-        while &w_cache[i + 1][j] == s_w {
+        while &cache.w[i + 1][j] == s_w {
             i += 1
         }
-        while &w_cache[i][j - 1] == s_w {
+        while &cache.w[i][j - 1] == s_w {
             j -= 1
         }
     }
@@ -1017,7 +990,7 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
         let s_v = if s_w.ij.len() > 1 {
             s_w
         } else {
-            &v_cache[i][j]
+            &cache.v[i][j]
         };
 
         values.push(s_v.clone().with_ij(vec![(i, j)]));
@@ -1030,10 +1003,10 @@ pub fn traceback(mut i: usize, mut j: usize, v_cache: &Values, w_cache: &Values)
 
             let mut branches = Vec::new();
             for &(i1, j1) in s_v.ij.iter() {
-                let tb = traceback(i1, j1, &v_cache, &w_cache);
+                let tb = traceback(i1, j1, cache);
 
-                if let Some(&(i2, j2)) = tb.get(0).and_then(|v| v.ij.first()) {
-                    e_sum += w_cache[i2][j2].e;
+                if let Some(&(i2, j2)) = tb.first().and_then(|v| v.ij.first()) {
+                    e_sum += cache.w[i2][j2].e;
                     branches.extend(tb);
                 }
             }

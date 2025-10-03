@@ -4,8 +4,6 @@ use crate::{BpEnergy, Comp, Energies, LoopEnergy, MultiBranch};
 
 use std::sync::LazyLock;
 
-// TODO: consider bpenergy computation in a LazyLock
-
 /// a, b, c, d in a linear multi-branch energy change function.
 ///
 /// Inferred from:
@@ -49,12 +47,7 @@ pub fn nn() -> BpEnergy {
         (b"GG/CC", (-8.0, -19.9)),
     ];
 
-    let mut nn = BpEnergy::default();
-    for (s, v) in RAW_NN {
-        nn.insert(s.to_owned(), v);
-        nn.insert(s.iter().copied().rev().collect(), v);
-    }
-    nn
+    BpEnergy::build(true, RAW_NN)
 }
 
 /// Internal mismatch table (DNA)
@@ -118,15 +111,7 @@ pub fn internal_mm() -> BpEnergy {
         (b"TT/AT", (0.2, -1.5)),
     ];
 
-    let mut internal_mm = BpEnergy::default();
-    for (s, v) in RAW_INTERNAL_MM {
-        internal_mm.insert(s.to_owned(), v);
-        let srev = s.iter().copied().rev().collect();
-        if !internal_mm.contains_key(&srev) {
-            internal_mm.insert(srev, v);
-        }
-    }
-    internal_mm
+    BpEnergy::build(false, RAW_INTERNAL_MM)
 }
 
 /// Terminal mismatch table (DNA)
@@ -183,15 +168,7 @@ pub fn terminal_mm() -> BpEnergy {
         (b"TT/AG", (-3.6, -9.8)),
     ];
 
-    let mut terminal_mm = BpEnergy::default();
-    for (s, v) in RAW_TERMINAL_MM {
-        terminal_mm.insert(s.to_owned(), v);
-        let srev = s.iter().copied().rev().collect();
-        if !terminal_mm.contains_key(&srev) {
-            terminal_mm.insert(srev, v);
-        }
-    }
-    terminal_mm
+    BpEnergy::build(false, RAW_TERMINAL_MM)
 }
 
 /// DNA dangling ends
@@ -233,15 +210,7 @@ pub fn de() -> BpEnergy {
         (b".T/TA", (-3.8, -12.6)),
     ];
 
-    let mut de = BpEnergy::default();
-    for (s, v) in RAW_DE {
-        de.insert(s.to_owned(), v);
-        let srev = s.iter().copied().rev().collect();
-        if !de.contains_key(&srev) {
-            de.insert(srev, v);
-        }
-    }
-    de
+    BpEnergy::build(false, RAW_DE)
 }
 
 /// Experimental delta H and delta S for tri/tetra loops
@@ -388,11 +357,7 @@ pub fn tri_tetra_loops() -> BpEnergy {
         (b"TTTTTG", (-0.5, -1.6)),
     ];
 
-    BpEnergy::from_iter(
-        RAW_TRI_TETRA_LOOPS
-            .into_iter()
-            .map(|(s, v)| (s.to_owned(), v)),
-    )
+    BpEnergy::new(RAW_TRI_TETRA_LOOPS)
 }
 
 /// Enthalpy and entropy increments for length dependence of internal loops
@@ -412,40 +377,40 @@ pub fn tri_tetra_loops() -> BpEnergy {
 /// delta G (asymmetry) = |length A - length B| x 0.3 (kcal / mol)
 /// where A and B are lengths of both sides of loop
 pub fn internal_loops() -> LoopEnergy {
-    pub static RAW_INTERNAL_LOOPS: [(usize, (f64, f64)); 30] = [
-        (1, (0.0, 0.0)),
-        (2, (0.0, 0.0)),
-        (3, (0.0, -10.3)),
-        (4, (0.0, -11.6)),
-        (5, (0.0, -12.9)),
-        (6, (0.0, -14.2)),
-        (7, (0.0, -14.8)),
-        (8, (0.0, -15.5)),
-        (9, (0.0, -15.8)),
-        (10, (0.0, -15.8)),
-        (11, (0.0, -16.1)),
-        (12, (0.0, -16.8)),
-        (13, (0.0, -16.4)),
-        (14, (0.0, -17.4)),
-        (15, (0.0, -17.7)),
-        (16, (0.0, -18.1)),
-        (17, (0.0, -18.4)),
-        (18, (0.0, -18.7)),
-        (19, (0.0, -18.7)),
-        (20, (0.0, -19.0)),
-        (21, (0.0, -19.0)),
-        (22, (0.0, -19.3)),
-        (23, (0.0, -19.7)),
-        (24, (0.0, -20.0)),
-        (25, (0.0, -20.3)),
-        (26, (0.0, -20.3)),
-        (27, (0.0, -20.6)),
-        (28, (0.0, -21.0)),
-        (29, (0.0, -21.0)),
-        (30, (0.0, -21.3)),
+    pub static RAW_INTERNAL_LOOPS: [(f64, f64); 30] = [
+        (0.0, 0.0),
+        (0.0, 0.0),
+        (0.0, -10.3),
+        (0.0, -11.6),
+        (0.0, -12.9),
+        (0.0, -14.2),
+        (0.0, -14.8),
+        (0.0, -15.5),
+        (0.0, -15.8),
+        (0.0, -15.8),
+        (0.0, -16.1),
+        (0.0, -16.8),
+        (0.0, -16.4),
+        (0.0, -17.4),
+        (0.0, -17.7),
+        (0.0, -18.1),
+        (0.0, -18.4),
+        (0.0, -18.7),
+        (0.0, -18.7),
+        (0.0, -19.0),
+        (0.0, -19.0),
+        (0.0, -19.3),
+        (0.0, -19.7),
+        (0.0, -20.0),
+        (0.0, -20.3),
+        (0.0, -20.3),
+        (0.0, -20.6),
+        (0.0, -21.0),
+        (0.0, -21.0),
+        (0.0, -21.3),
     ];
 
-    LoopEnergy::from_iter(RAW_INTERNAL_LOOPS)
+    LoopEnergy::from(RAW_INTERNAL_LOOPS)
 }
 
 /// Enthalpy and entropy increments for length depedence of bulge loops
@@ -460,40 +425,40 @@ pub fn internal_loops() -> LoopEnergy {
 /// For bulge loops of size 1, the intervening NN energy is used.
 /// Closing AT penalty is applied on both sides
 pub fn bulge_loops() -> LoopEnergy {
-    pub static RAW_BULGE_LOOPS: [(usize, (f64, f64)); 30] = [
-        (1, (0.0, -12.9)),
-        (2, (0.0, -9.4)),
-        (3, (0.0, -10.0)),
-        (4, (0.0, -10.3)),
-        (5, (0.0, -10.6)),
-        (6, (0.0, -11.3)),
-        (7, (0.0, -11.9)),
-        (8, (0.0, -12.6)),
-        (9, (0.0, -13.2)),
-        (10, (0.0, -13.9)),
-        (11, (0.0, -14.2)),
-        (12, (0.0, -14.5)),
-        (13, (0.0, -14.8)),
-        (14, (0.0, -15.5)),
-        (15, (0.0, -15.8)),
-        (16, (0.0, -16.1)),
-        (17, (0.0, -16.4)),
-        (18, (0.0, -16.8)),
-        (19, (0.0, -16.8)),
-        (20, (0.0, -17.1)),
-        (21, (0.0, -17.4)),
-        (22, (0.0, -17.4)),
-        (23, (0.0, -17.7)),
-        (24, (0.0, -17.7)),
-        (25, (0.0, -18.1)),
-        (26, (0.0, -18.1)),
-        (27, (0.0, -18.4)),
-        (28, (0.0, -18.7)),
-        (29, (0.0, -18.7)),
-        (30, (0.0, -19.0)),
+    pub static RAW_BULGE_LOOPS: [(f64, f64); 30] = [
+        (0.0, -12.9),
+        (0.0, -9.4),
+        (0.0, -10.0),
+        (0.0, -10.3),
+        (0.0, -10.6),
+        (0.0, -11.3),
+        (0.0, -11.9),
+        (0.0, -12.6),
+        (0.0, -13.2),
+        (0.0, -13.9),
+        (0.0, -14.2),
+        (0.0, -14.5),
+        (0.0, -14.8),
+        (0.0, -15.5),
+        (0.0, -15.8),
+        (0.0, -16.1),
+        (0.0, -16.4),
+        (0.0, -16.8),
+        (0.0, -16.8),
+        (0.0, -17.1),
+        (0.0, -17.4),
+        (0.0, -17.4),
+        (0.0, -17.7),
+        (0.0, -17.7),
+        (0.0, -18.1),
+        (0.0, -18.1),
+        (0.0, -18.4),
+        (0.0, -18.7),
+        (0.0, -18.7),
+        (0.0, -19.0),
     ];
 
-    LoopEnergy::from_iter(RAW_BULGE_LOOPS)
+    LoopEnergy::from(RAW_BULGE_LOOPS)
 }
 
 /// Enthalpy and entropy increments for length depedence of hairpin loops
@@ -511,40 +476,40 @@ pub fn bulge_loops() -> LoopEnergy {
 /// From formula 8-9 of the paper:
 /// An additional 1.6 delta entropy penalty if the hairpin is closed by AT
 fn raw_hairpin_loops() -> LoopEnergy {
-    pub static RAW_HAIRPIN_LOOPS: [(usize, (f64, f64)); 30] = [
-        (1, (0.0, 0.0)),
-        (2, (0.0, 0.0)),
-        (3, (0.0, -11.3)),
-        (4, (0.0, -11.3)),
-        (5, (0.0, -10.6)),
-        (6, (0.0, -12.9)),
-        (7, (0.0, -13.5)),
-        (8, (0.0, -13.9)),
-        (9, (0.0, -14.5)),
-        (10, (0.0, -14.8)),
-        (11, (0.0, -15.5)),
-        (12, (0.0, -16.1)),
-        (13, (0.0, -16.1)),
-        (14, (0.0, -16.4)),
-        (15, (0.0, -16.8)),
-        (16, (0.0, -17.1)),
-        (17, (0.0, -17.4)),
-        (18, (0.0, -17.7)),
-        (19, (0.0, -18.1)),
-        (20, (0.0, -18.4)),
-        (21, (0.0, -18.7)),
-        (22, (0.0, -18.7)),
-        (23, (0.0, -19.0)),
-        (24, (0.0, -19.3)),
-        (25, (0.0, -19.7)),
-        (26, (0.0, -19.7)),
-        (27, (0.0, -19.7)),
-        (28, (0.0, -20.0)),
-        (29, (0.0, -20.0)),
-        (30, (0.0, -20.3)),
+    pub static RAW_HAIRPIN_LOOPS: [(f64, f64); 30] = [
+        (0.0, 0.0),
+        (0.0, 0.0),
+        (0.0, -11.3),
+        (0.0, -11.3),
+        (0.0, -10.6),
+        (0.0, -12.9),
+        (0.0, -13.5),
+        (0.0, -13.9),
+        (0.0, -14.5),
+        (0.0, -14.8),
+        (0.0, -15.5),
+        (0.0, -16.1),
+        (0.0, -16.1),
+        (0.0, -16.4),
+        (0.0, -16.8),
+        (0.0, -17.1),
+        (0.0, -17.4),
+        (0.0, -17.7),
+        (0.0, -18.1),
+        (0.0, -18.4),
+        (0.0, -18.7),
+        (0.0, -18.7),
+        (0.0, -19.0),
+        (0.0, -19.3),
+        (0.0, -19.7),
+        (0.0, -19.7),
+        (0.0, -19.7),
+        (0.0, -20.0),
+        (0.0, -20.0),
+        (0.0, -20.3),
     ];
 
-    LoopEnergy::from_iter(RAW_HAIRPIN_LOOPS)
+    LoopEnergy::from(RAW_HAIRPIN_LOOPS)
 }
 
 pub fn calc_dna() -> Energies {
@@ -563,6 +528,6 @@ pub fn calc_dna() -> Energies {
 }
 
 pub fn dna() -> &'static Energies {
-    pub static DNA: LazyLock<Energies> = LazyLock::new(|| calc_dna());
+    pub static DNA: LazyLock<Energies> = LazyLock::new(calc_dna);
     &DNA
 }

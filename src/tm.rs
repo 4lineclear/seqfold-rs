@@ -2,6 +2,9 @@
 
 use crate::{Cache, dna, util::round1};
 
+#[cfg(test)]
+mod test;
+
 /// Calculate the annealing temperature between seq1 and seq2.
 ///
 /// If seq2 is not provided, its exact complement is used.
@@ -39,34 +42,33 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
     // SantaLucia & Hicks (2004), Annu. Rev. Biophys. Biomol. Struct 33: 415-440
 
     // start with initiation enthalpy and entropy
-    let (mut dh, mut ds) = dna().nn[b"init".as_slice()];
+    let (mut dh, mut ds) = dna().nn[*b"init"];
 
     // add in initial A/T and initial G/Cs
     let init = [seq1[0], seq1[seq1.len() - 1]];
     let [a, t, g, c] = counts(&init, [b'A', b'T', b'G', b'C']);
     let init_at = (a + t) as f64;
     let init_gc = (g + c) as f64;
-    let (init_at_h, init_at_s) = dna().nn[b"init_A/T".as_slice()];
-    let (init_gc_h, init_gc_s) = dna().nn[b"init_G/C".as_slice()];
+    let (init_at_h, init_at_s) = dna().nn[*b"init_A/T"];
+    let (init_gc_h, init_gc_s) = dna().nn[*b"init_G/C"];
     dh += init_at * init_at_h + init_gc * init_gc_h;
     ds += init_at * init_at_s + init_gc * init_gc_s;
 
     // work through each nearest neighbor pair
     for i in 0..seq1.len() - 1 {
         let pair = [seq1[i], seq1[i + 1], b'/', seq2[i], seq2[i + 1]];
-        let pair = pair.as_slice();
 
         // assuming internal neighbor pair
         let (mut pair_dh, mut pair_ds) = (0.0, 0.0);
-        if dna().nn.contains_key(pair) {
-            (pair_dh, pair_ds) = dna().nn[pair];
-        } else if dna().internal_mm.contains_key(pair) {
-            (pair_dh, pair_ds) = dna().internal_mm[pair];
-        }
 
+        if let Some(p) = dna().nn.get(pair).or_else(|| dna().internal_mm.get(pair)) {
+            (pair_dh, pair_ds) = p;
+        }
         // overwrite if it's a terminal pair
-        if [0, seq1.len() - 2].contains(&i) && dna().terminal_mm.contains_key(pair) {
-            (pair_dh, pair_ds) = dna().terminal_mm[pair];
+        if [0, seq1.len() - 2].contains(&i)
+            && let Some(pair) = dna().terminal_mm.get(pair)
+        {
+            (pair_dh, pair_ds) = pair;
         }
 
         dh += pair_dh;
@@ -90,13 +92,13 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
 /// - seq1: The seq whose tm is calculated
 /// - seq2: The seq that seq1 anneals to in 3' -> 5' direction
 /// - pcr:  Whether tm is being calculated for the oligo is in a
-///         PCR reaction mixture. If so, ion and Tris concentrations
-///         that match a typical NEB/ThermoFisher PCR mixture are used
+///   PCR reaction mixture. If so, ion and Tris concentrations
+///   that match a typical NEB/ThermoFisher PCR mixture are used
 ///
 /// # Returns
 ///
 /// - [`Cache`]: Where querying the cache with (i, j) returns the tm of the
-///              subsequence starting with i and ending with j, inclusive
+///   subsequence starting with i and ending with j, inclusive
 pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
     let pcr = pcr.unwrap_or(true);
     let (seq1, seq2) = parse_input(seq1, seq2);
@@ -123,11 +125,10 @@ pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
         }
 
         let pair = [seq1[i], seq1[i + 1], b'/', seq2[i], seq2[i + 1]];
-        let pair = pair.as_slice();
-        let &(dh, ds) = dna()
+        let (dh, ds) = dna()
             .nn
             .get(pair)
-            .unwrap_or_else(|| &dna().internal_mm[pair]);
+            .unwrap_or_else(|| dna().internal_mm[pair]);
 
         arr_dh[i][i] = dh;
         arr_ds[i][i] = ds;
@@ -206,7 +207,7 @@ pub fn gc_cache(seq: &[u8]) -> Cache {
 pub fn parse_input(seq1: &[u8], seq2: Option<&[u8]>) -> (Vec<u8>, Vec<u8>) {
     let seq1 = seq1.to_ascii_uppercase();
     let seq2 = seq2.map_or_else(
-        || seq1.iter().map(|b| dna().complement[b]).collect(),
+        || seq1.iter().map(|&b| dna().complement[b]).collect(),
         Vec::from,
     );
 
@@ -221,7 +222,7 @@ pub fn parse_input(seq1: &[u8], seq2: Option<&[u8]>) -> (Vec<u8>, Vec<u8>) {
         seq1.len()
     );
 
-    return (seq1, seq2);
+    (seq1, seq2)
 }
 
 /// Apply the correction formula to estimate Tm
@@ -314,71 +315,4 @@ fn counts<const N: usize>(seq: &[u8], symbols: [u8; N]) -> [usize; N] {
     }
 
     counts
-}
-
-#[cfg(test)]
-mod test {
-    //! Test Tm calculation
-
-    use approx::assert_relative_eq;
-
-    #[test]
-    fn counts() {
-        let counts = super::counts(b"AcBdBBrBeAlBaThakaZAAzaaBBAA", [b'a', b'A', b'B']);
-        assert_eq!(counts, [5, 6, 7]);
-    }
-
-    /// Oligo tm calculation.
-    #[test]
-    fn test_calc_tm() {
-        // values are from Table 1 of IDT's:
-        // Owczarzy et al. (2008), Biochemistry 4 7: 5336-5353
-        // with a 1.5mM Mg concentration which looks typical according to NEB
-        let experimental_tms = [
-            ("GGGACCGCCT", 51.9),
-            ("CCATTGCTACC", 42.7),
-            ("GCAGTGGATGTGAGA", 55.1),
-            ("CTGGTCTGGATCTGAGAACTTCAGG", 67.7),
-            ("CTTAAGATATGAGAACTTCAACTAATGTGT", 59.7),
-            ("AGTCTGGTCTGGATCTGAGAACTTCAGGCT", 71.6),
-        ];
-
-        for (seq, actual) in experimental_tms {
-            let calc = super::tm(seq.as_bytes(), None, None);
-            assert_relative_eq!(calc, actual, epsilon = 7.0);
-        }
-    }
-
-    /// Create a cache for tms over ranges in the sequence.
-    #[test]
-    fn test_tm_cache() {
-        let seq = "AGTCTGGTCTGGATCTGAGAACTTCAGGCT";
-        let n = seq.len();
-
-        let cache = super::tm_cache(seq.as_bytes(), None, None);
-
-        assert_relative_eq!(cache[0][n - 1], 71.6, epsilon = 3.0);
-        assert!(cache[3][n - 3] < 71.6);
-        assert_eq!(f64::INFINITY, cache[5][5]);
-        assert_eq!(f64::INFINITY, cache[5][1]);
-    }
-
-    /// Create a cache of GC ratios from i to j.
-    #[test]
-    fn test_gc_cache() {
-        let seq = "GGATTACCCAGATAGATAGAT";
-        let ranges = [(0, seq.len() - 1), (5, 9), (3, 15)];
-
-        let cache = super::gc_cache(seq.as_bytes());
-
-        for (s, e) in ranges {
-            let est = cache[s][e];
-            let ss = &seq[s..e + 1];
-            let [g, c] = super::counts(ss.as_bytes(), [b'G', b'C']);
-            let gc_count = g + c;
-            let gc_actual = (gc_count as f64) / ((e - s + 1) as f64);
-
-            assert_relative_eq!(gc_actual, est, epsilon = 0.02);
-        }
-    }
 }

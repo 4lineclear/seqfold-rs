@@ -2,7 +2,7 @@
 
 use approx::assert_relative_eq;
 
-use super::{Value, Values};
+use super::Values;
 use crate::{dna, fold::Desc, rna};
 
 /// Fold function.
@@ -219,40 +219,25 @@ fn test_w() {
     let i = 0;
     let j = 15;
     let temp = 310.15;
-    let mut v_cache = Values::new();
-    let mut w_cache = Values::new();
-    for _ in 0..seq.len() {
-        v_cache.push(vec![Value::DEFAULT; seq.len()]);
-        w_cache.push(vec![Value::DEFAULT; seq.len()]);
-    }
-    let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
-    let value = &w_cache[i][j];
+    let mut cache = Values::new(seq.len());
+    let (i, j) = super::w(seq, i, j, temp, &mut cache, rna());
+    let value = &cache.w[i][j];
     assert_relative_eq!(value.e, -3.8, epsilon = 0.2);
 
     let seq = b"CCUGCUUUGCACGCAGG";
     let i = 0;
     let j = 16;
     let temp = 310.15;
-    let mut v_cache = Values::new();
-    let mut w_cache = Values::new();
-    for _ in 0..seq.len() {
-        v_cache.push(vec![Value::DEFAULT; seq.len()]);
-        w_cache.push(vec![Value::DEFAULT; seq.len()]);
-    }
-    let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
-    let value = &w_cache[i][j];
+    let mut cache = Values::new(seq.len());
+    let (i, j) = super::w(seq, i, j, temp, &mut cache, rna());
+    let value = &cache.w[i][j];
     assert_relative_eq!(value.e, -6.4, epsilon = 0.2);
 
     let seq = b"GCGGUUCGAUCCCGC";
     let i = 0;
     let j = 14;
-    let mut v_cache = Values::new();
-    let mut w_cache = Values::new();
-    for _ in 0..seq.len() {
-        v_cache.push(vec![Value::DEFAULT; seq.len()]);
-        w_cache.push(vec![Value::DEFAULT; seq.len()]);
-    }
-    let (i, j) = super::w(seq, i, j, temp, &mut v_cache, &mut w_cache, rna());
-    let value = &w_cache[i][j];
+    let mut cache = Values::new(seq.len());
+    let (i, j) = super::w(seq, i, j, temp, &mut cache, rna());
+    let value = &cache.w[i][j];
     assert_relative_eq!(value.e, -4.2, epsilon = 0.2);
 }

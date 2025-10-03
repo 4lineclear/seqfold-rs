@@ -4,8 +4,6 @@ use std::sync::LazyLock;
 
 use crate::{BpEnergy, Comp, Energies, LoopEnergy, MultiBranch};
 
-// TODO: consider bpenergy computation in a LazyLock
-
 pub const fn multibranch() -> MultiBranch {
     (2.5, 0.1, 0.4, 2.0)
 }
@@ -42,12 +40,7 @@ pub fn nn() -> BpEnergy {
         (b"UU/AA", (-6.8, -19.0)),
     ];
 
-    let mut nn = BpEnergy::default();
-    for (s, v) in RAW_NN {
-        nn.insert(s.to_owned(), v);
-        nn.insert(s.iter().copied().rev().collect(), v);
-    }
-    nn
+    BpEnergy::build(true, RAW_NN)
 }
 
 pub fn internal_mm() -> BpEnergy {
@@ -294,15 +287,7 @@ pub fn internal_mm() -> BpEnergy {
         (b"UU/UU", (0.0, 0.0)),
     ];
 
-    let mut internal_mm = BpEnergy::default();
-    for (s, v) in RAW_INTERNAL_MM {
-        internal_mm.insert(s.to_owned(), v);
-        let srev = s.iter().copied().rev().collect();
-        if !internal_mm.contains_key(&srev) {
-            internal_mm.insert(srev, v);
-        }
-    }
-    internal_mm
+    BpEnergy::build(false, RAW_INTERNAL_MM)
 }
 
 pub fn terminal_mm() -> BpEnergy {
@@ -565,15 +550,7 @@ pub fn terminal_mm() -> BpEnergy {
         (b"UU/UU", (0.0, 0.0)),
     ];
 
-    let mut terminal_mm = BpEnergy::default();
-    for (s, v) in RAW_TERMINAL_MM {
-        terminal_mm.insert(s.to_owned(), v);
-        let srev = s.iter().copied().rev().collect();
-        if !terminal_mm.contains_key(&srev) {
-            terminal_mm.insert(srev, v);
-        }
-    }
-    terminal_mm
+    BpEnergy::build(false, RAW_TERMINAL_MM)
 }
 
 pub fn de() -> BpEnergy {
@@ -708,126 +685,118 @@ pub fn de() -> BpEnergy {
         (b"U./UU", (0.0, 0.0)),
     ];
 
-    let mut de = BpEnergy::default();
-    for (s, v) in RAW_DE {
-        de.insert(s.to_owned(), v);
-        let srev = s.iter().copied().rev().collect();
-        if !de.contains_key(&srev) {
-            de.insert(srev, v);
-        }
-    }
-    de
+    BpEnergy::build(false, RAW_DE)
 }
 
 pub fn internal_loops() -> LoopEnergy {
-    pub static RAW_INTERNAL_LOOPS: [(usize, (f64, f64)); 30] = [
-        (1, (0.0, 0.0)),
-        (2, (0.0, 0.0)),
-        (3, (0.0, 0.0)),
-        (4, (-7.2, -26.8)),
-        (5, (-6.8, -28.4)),
-        (6, (-1.3, -10.6)),
-        (7, (-1.3, -11.0)),
-        (8, (-1.3, -11.6)),
-        (9, (-1.3, -11.9)),
-        (10, (-1.3, -12.3)),
-        (11, (-1.3, -12.6)),
-        (12, (-1.3, -12.9)),
-        (13, (-1.3, -13.2)),
-        (14, (-1.3, -13.5)),
-        (15, (-1.3, -13.5)),
-        (16, (-1.3, -13.9)),
-        (17, (-1.3, -14.2)),
-        (18, (-1.3, -14.2)),
-        (19, (-1.3, -14.5)),
-        (20, (-1.3, -14.8)),
-        (21, (-1.3, -14.8)),
-        (22, (-1.3, -15.2)),
-        (23, (-1.3, -15.2)),
-        (24, (-1.3, -15.5)),
-        (25, (-1.3, -15.5)),
-        (26, (-1.3, -15.5)),
-        (27, (-1.3, -15.8)),
-        (28, (-1.3, -15.8)),
-        (29, (-1.3, -16.1)),
-        (30, (-1.3, -16.1)),
+    pub static RAW_INTERNAL_LOOPS: [(f64, f64); 30] = [
+        (0.0, 0.0),
+        (0.0, 0.0),
+        (0.0, 0.0),
+        (-7.2, -26.8),
+        (-6.8, -28.4),
+        (-1.3, -10.6),
+        (-1.3, -11.0),
+        (-1.3, -11.6),
+        (-1.3, -11.9),
+        (-1.3, -12.3),
+        (-1.3, -12.6),
+        (-1.3, -12.9),
+        (-1.3, -13.2),
+        (-1.3, -13.5),
+        (-1.3, -13.5),
+        (-1.3, -13.9),
+        (-1.3, -14.2),
+        (-1.3, -14.2),
+        (-1.3, -14.5),
+        (-1.3, -14.8),
+        (-1.3, -14.8),
+        (-1.3, -15.2),
+        (-1.3, -15.2),
+        (-1.3, -15.5),
+        (-1.3, -15.5),
+        (-1.3, -15.5),
+        (-1.3, -15.8),
+        (-1.3, -15.8),
+        (-1.3, -16.1),
+        (-1.3, -16.1),
     ];
 
-    LoopEnergy::from_iter(RAW_INTERNAL_LOOPS)
+    LoopEnergy::from(RAW_INTERNAL_LOOPS)
 }
 
 pub fn bulge_loops() -> LoopEnergy {
-    pub static RAW_BULGE_LOOPS: [(usize, (f64, f64)); 30] = [
-        (1, (10.6, 21.9)),
-        (2, (7.1, 13.9)),
-        (3, (7.1, 12.6)),
-        (4, (7.1, 11.3)),
-        (5, (7.1, 10.0)),
-        (6, (7.1, 8.7)),
-        (7, (7.1, 8.1)),
-        (8, (7.1, 7.7)),
-        (9, (7.1, 7.4)),
-        (10, (7.1, 7.1)),
-        (11, (7.1, 6.8)),
-        (12, (7.1, 6.4)),
-        (13, (7.1, 6.1)),
-        (14, (7.1, 5.8)),
-        (15, (7.1, 5.5)),
-        (16, (7.1, 5.5)),
-        (17, (7.1, 5.2)),
-        (18, (7.1, 5.2)),
-        (19, (7.1, 4.8)),
-        (20, (7.1, 4.5)),
-        (21, (7.1, 4.5)),
-        (22, (7.1, 4.2)),
-        (23, (7.1, 4.2)),
-        (24, (7.1, 4.2)),
-        (25, (7.1, 3.9)),
-        (26, (7.1, 3.9)),
-        (27, (7.1, 3.5)),
-        (28, (7.1, 3.5)),
-        (29, (7.1, 3.5)),
-        (30, (7.1, 3.2)),
+    pub static RAW_BULGE_LOOPS: [(f64, f64); 30] = [
+        (10.6, 21.9),
+        (7.1, 13.9),
+        (7.1, 12.6),
+        (7.1, 11.3),
+        (7.1, 10.0),
+        (7.1, 8.7),
+        (7.1, 8.1),
+        (7.1, 7.7),
+        (7.1, 7.4),
+        (7.1, 7.1),
+        (7.1, 6.8),
+        (7.1, 6.4),
+        (7.1, 6.1),
+        (7.1, 5.8),
+        (7.1, 5.5),
+        (7.1, 5.5),
+        (7.1, 5.2),
+        (7.1, 5.2),
+        (7.1, 4.8),
+        (7.1, 4.5),
+        (7.1, 4.5),
+        (7.1, 4.2),
+        (7.1, 4.2),
+        (7.1, 4.2),
+        (7.1, 3.9),
+        (7.1, 3.9),
+        (7.1, 3.5),
+        (7.1, 3.5),
+        (7.1, 3.5),
+        (7.1, 3.2),
     ];
 
-    LoopEnergy::from_iter(RAW_BULGE_LOOPS)
+    LoopEnergy::from(RAW_BULGE_LOOPS)
 }
 
 fn raw_hairpin_loops() -> LoopEnergy {
-    pub static RAW_HAIRPIN_LOOPS: [(usize, (f64, f64)); 30] = [
-        (1, (0.0, 0.0)),
-        (2, (0.0, 0.0)),
-        (3, (1.3, -13.2)),
-        (4, (4.8, -2.6)),
-        (5, (3.6, -6.8)),
-        (6, (-2.9, -26.8)),
-        (7, (1.3, -15.2)),
-        (8, (-2.9, -27.1)),
-        (9, (5.0, -4.5)),
-        (10, (5.0, -4.8)),
-        (11, (5.0, -5.2)),
-        (12, (5.0, -5.5)),
-        (13, (5.0, -5.8)),
-        (14, (5.0, -6.1)),
-        (15, (5.0, -6.1)),
-        (16, (5.0, -6.4)),
-        (17, (5.0, -6.8)),
-        (18, (5.0, -6.8)),
-        (19, (5.0, -7.1)),
-        (20, (5.0, -7.1)),
-        (21, (5.0, -7.4)),
-        (22, (5.0, -7.4)),
-        (23, (5.0, -7.7)),
-        (24, (5.0, -7.7)),
-        (25, (5.0, -8.1)),
-        (26, (5.0, -8.1)),
-        (27, (5.0, -8.1)),
-        (28, (5.0, -8.4)),
-        (29, (5.0, -8.4)),
-        (30, (5.0, -8.7)),
+    pub static RAW_HAIRPIN_LOOPS: [(f64, f64); 30] = [
+        (0.0, 0.0),
+        (0.0, 0.0),
+        (1.3, -13.2),
+        (4.8, -2.6),
+        (3.6, -6.8),
+        (-2.9, -26.8),
+        (1.3, -15.2),
+        (-2.9, -27.1),
+        (5.0, -4.5),
+        (5.0, -4.8),
+        (5.0, -5.2),
+        (5.0, -5.5),
+        (5.0, -5.8),
+        (5.0, -6.1),
+        (5.0, -6.1),
+        (5.0, -6.4),
+        (5.0, -6.8),
+        (5.0, -6.8),
+        (5.0, -7.1),
+        (5.0, -7.1),
+        (5.0, -7.4),
+        (5.0, -7.4),
+        (5.0, -7.7),
+        (5.0, -7.7),
+        (5.0, -8.1),
+        (5.0, -8.1),
+        (5.0, -8.1),
+        (5.0, -8.4),
+        (5.0, -8.4),
+        (5.0, -8.7),
     ];
 
-    LoopEnergy::from_iter(RAW_HAIRPIN_LOOPS)
+    LoopEnergy::from(RAW_HAIRPIN_LOOPS)
 }
 
 pub fn calc_rna() -> Energies {
@@ -846,6 +815,6 @@ pub fn calc_rna() -> Energies {
 }
 
 pub fn rna() -> &'static Energies {
-    pub static RNA: LazyLock<Energies> = LazyLock::new(|| calc_rna());
+    pub static RNA: LazyLock<Energies> = LazyLock::new(calc_rna);
     &RNA
 }

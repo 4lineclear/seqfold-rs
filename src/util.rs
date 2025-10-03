@@ -3,22 +3,15 @@ use std::ops::DerefMut;
 use std::ops::Index;
 use std::ops::IndexMut;
 
-use crate::fold::{Value, Values};
+use crate::fold::Value;
 
 #[derive(Debug, Default)]
 pub struct ByteStr<B>(pub B);
 
 impl<B: AsRef<[u8]>> std::fmt::Display for ByteStr<B> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.0
-                .as_ref()
-                .iter()
-                .map(|&b| b as char)
-                .collect::<String>()
-        )
+        let s: String = self.0.as_ref().iter().map(|&b| b as char).collect();
+        write!(f, "{s}")
     }
 }
 
@@ -56,14 +49,14 @@ impl<V> From<V> for Matrix<V> {
 impl<V> Matrix<V> {
     fn get(&self, i: usize, j: usize) -> Option<&Value>
     where
-        V: Deref<Target = Values>,
+        V: Deref<Target = Vec<Vec<Value>>>,
     {
         self.0.get(i)?.get(j)
     }
 
     fn get_mut(&mut self, i: usize, j: usize) -> Option<&mut Value>
     where
-        V: DerefMut<Target = Values>,
+        V: DerefMut<Target = Vec<Vec<Value>>>,
     {
         self.0.get_mut(i)?.get_mut(j)
     }
@@ -91,22 +84,20 @@ impl<V> Matrix<V> {
 
 impl<V> Index<(usize, usize)> for Matrix<V>
 where
-    V: Deref<Target = Values>,
+    V: Deref<Target = Vec<Vec<Value>>>,
 {
     type Output = Value;
 
     fn index(&self, (i, j): (usize, usize)) -> &Self::Output {
-        // &self[i][j]
         self.get(i, j).expect("index out of bounds")
     }
 }
 
 impl<V> IndexMut<(usize, usize)> for Matrix<V>
 where
-    V: DerefMut<Target = Values>,
+    V: DerefMut<Target = Vec<Vec<Value>>>,
 {
     fn index_mut(&mut self, (i, j): (usize, usize)) -> &mut Self::Output {
-        // &mut self[i][j]
         self.get_mut(i, j).expect("index out of bounds")
     }
 }
