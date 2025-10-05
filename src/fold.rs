@@ -1,24 +1,43 @@
 //! Predict nucleic acid secondary structure
 
-use std::fmt::Display;
+use std::{
+    fmt::Display,
+    ops::{Index, IndexMut},
+};
 
 use crate::{
     Cache, Energies,
-    util::{ByteStr, Matrix, ToIsize, round1, round2},
+    util::{ByteStr, ToIsize, round1, round2},
 };
 
 #[cfg(test)]
 mod test;
+
+// TODO: explore branchless code techniques
 
 /// A single structure with a free energy, description, and inward children.
 #[derive(Debug, Clone)]
 pub struct Value {
     pub e: f64,
     pub desc: Desc,
-    pub ij: Vec<(usize, usize)>,
+    pub ij: Indices,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+// Vec<[T; self.len]>
+// struct Storage {
+//     len: usize,
+//     values: Vec<T>,
+// }
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        self.e == other.e
+    }
+}
+
+pub type Indices = Vec<(usize, usize)>;
+
+#[derive(Clone)]
 pub enum Desc {
     Empty,
     Bifurcation(usize, usize),
@@ -51,11 +70,9 @@ impl Display for Desc {
     }
 }
 
-impl std::error::Error for Desc {}
-
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
-        Self::new(value, Desc::Empty, Vec::new())
+        Self::new(value, Desc::Empty, Indices::new())
     }
 }
 
@@ -64,14 +81,14 @@ impl Value {
     pub const DEFAULT: Self = Self::empty(f64::NEG_INFINITY, Desc::Empty);
 
     pub const fn empty(e: f64, desc: Desc) -> Value {
-        Self::new(e, desc, Vec::new())
+        Self::new(e, desc, Indices::new())
     }
 
-    pub const fn new(e: f64, desc: Desc, ij: Vec<(usize, usize)>) -> Self {
+    pub const fn new(e: f64, desc: Desc, ij: Indices) -> Self {
         Self { e, desc, ij }
     }
 
-    pub fn with_ij(mut self, ij: Vec<(usize, usize)>) -> Self {
+    pub fn with_ij(mut self, ij: Indices) -> Self {
         self.ij = ij;
         self
     }
@@ -81,26 +98,46 @@ impl Value {
     }
 }
 
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        self.e == other.e && self.ij == other.ij
-    }
-}
-
 /// A map from i, j tuple to a min free energy Struct.
 pub struct Values {
     /// - v_cache: Values of energies where V(i,j) bond
-    v: Vec<Vec<Value>>,
+    v: Matrix,
     /// - w_cache: Values of min energy of substructures between W(i,j)
-    w: Vec<Vec<Value>>,
+    w: Matrix,
 }
 
 impl Values {
     pub fn new(n: usize) -> Self {
         Values {
-            v: vec![vec![Value::DEFAULT; n]; n],
-            w: vec![vec![Value::DEFAULT; n]; n],
+            v: Matrix::new(n),
+            w: Matrix::new(n),
         }
+    }
+}
+
+pub struct Matrix {
+    values: Box<[Value]>,
+    len: usize,
+}
+
+impl Matrix {
+    pub fn new(len: usize) -> Self {
+        let values = vec![Value::DEFAULT; len * len].into_boxed_slice();
+        Self { values, len }
+    }
+}
+
+impl Index<usize> for Matrix {
+    type Output = [Value];
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.values[index * self.len..(index + 1) * self.len]
+    }
+}
+
+impl IndexMut<usize> for Matrix {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.values[index * self.len..(index + 1) * self.len]
     }
 }
 
@@ -114,6 +151,20 @@ pub enum SeqError {
     /// Unknown bp encountered.
     UnknownBp(String),
 }
+
+impl Display for SeqError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SeqError::DnaOrRna => write!(
+                f,
+                "Both T and U in sequence. Provide one or the other for DNA OR RNA."
+            ),
+            SeqError::UnknownBp(s) => write!(f, "Unknown bp encountered: {s}"),
+        }
+    }
+}
+
+impl std::error::Error for SeqError {}
 
 /// Fold the DNA sequence and return the lowest free energy score.
 ///
@@ -163,7 +214,7 @@ pub fn dg(seq: &[u8], temp: Option<f64>) -> f64 {
 
 /// A non-panicing version of [`dg`]
 pub fn try_dg(seq: &[u8], temp: Option<f64>) -> SeqResult<f64> {
-    let values: Vec<Value> = try_fold(seq, temp)?;
+    let values = try_fold(seq, temp)?;
     let dg_sum = values.iter().map(|v| v.e).sum();
     Ok(round2(dg_sum))
 }
@@ -185,10 +236,9 @@ pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> Cache {
 
 /// A non-panicing version of [`dg_cache`]
 pub fn try_dg_cache(seq: &[u8], temp: Option<f64>) -> SeqResult<Cache> {
-    Ok(cache(seq, temp)?
-        .w
-        .into_iter()
-        .map(|row| row.into_iter().map(|v| v.e).collect())
+    let cache = cache(seq, temp)?;
+    Ok((0..cache.w.len)
+        .map(|i| cache.w[i].iter().map(|v| v.e).collect())
         .collect())
 }
 
@@ -274,6 +324,7 @@ fn parse_sequence(seq: &[u8]) -> SeqResult<(Vec<u8>, &'static Energies)> {
 /// - j: The end index (inclusive)
 /// - temp: The temperature in Kelvin
 /// - cache: Combined free energy cache
+/// - emap: Energy map for DNA/RNA
 ///
 /// # Returns
 ///
@@ -308,10 +359,13 @@ pub fn w(
         }
     }
 
-    let w = Matrix(&cache.w);
-    let v = Matrix(&cache.v);
-    let min_value = min_value([&w[w1], &w[w2], &v[w3], &w4]);
-    cache.w[i][j] = min_value;
+    cache.w[i][j] = min_value([
+        &cache.w[w1.0][w1.1],
+        &cache.w[w2.0][w2.1],
+        &cache.v[w3.0][w3.1],
+        &w4,
+    ]);
+
     (i, j)
 }
 
@@ -353,10 +407,7 @@ pub fn v(
     // if the basepair is isolated, and the seq large, penalize at 1,600 kcal/mol
     // heuristic for speeding this up
     // from https://www.ncbi.nlm.nih.gov/pubmed/10329189
-    let mut isolated_outer = true;
-    if i != 0 && j < seq.len() - 1 {
-        isolated_outer = emap.complement[seq[i - 1]] != seq[j + 1];
-    }
+    let isolated_outer = i == 0 || j >= seq.len() - 1 || emap.complement[seq[i - 1]] != seq[j + 1];
     let isolated_inner = emap.complement[seq[i + 1]] != seq[j - 1];
 
     if isolated_outer && isolated_inner {
@@ -495,14 +546,14 @@ pub fn calc_pair(
 /// # Returns
 ///
 /// - [`Value`]: The min free energy structure
-pub fn min_value<'a>(values: impl IntoIterator<Item = &'a Value>) -> Value {
-    let mut value = Value::NULL;
+pub fn min_value<const N: usize>(values: [&Value; N]) -> Value {
+    let mut vt = &Value::NULL;
     for v in values {
-        if v.e != f64::NEG_INFINITY && v.e < value.e {
-            value = v.clone();
+        if v.e != f64::NEG_INFINITY && v.e < vt.e {
+            vt = &v;
         }
     }
-    value
+    vt.clone()
 }
 
 /// Find the free energy given delta h, s and temp
@@ -559,6 +610,7 @@ pub fn calc_j_s(query_len: usize, known_len: usize, d_g_x: f64, temp: f64) -> f6
 /// - j: The end index on right side of the pair/stack
 /// - j1: The index to the left of j
 /// - temp: Temperature in Kelvin
+/// - emap: Map of energies
 ///
 /// # Returns
 ///
@@ -753,9 +805,7 @@ pub fn internal_loop(
     let loop_right = j - j1 - 1;
     let loop_len = loop_left + loop_right;
 
-    if loop_left < 1 || loop_right < 1 {
-        panic!();
-    }
+    assert!(loop_left >= 1 && loop_right >= 1);
 
     // single bp mismatch, sum up the two single mismatch pairs
     if loop_left == 1 && loop_right == 1 {
@@ -789,7 +839,7 @@ pub fn add_branch(
     temp: f64,
     cache: &mut Values,
     emap: &Energies,
-    branches: &mut Vec<(usize, usize)>,
+    branches: &mut Indices,
 ) {
     let this = &cache.w[i][j];
 
@@ -821,9 +871,8 @@ pub fn add_branch(
 /// - j: The right ending index
 /// - temp: Folding temp
 /// - cache: Combined free energy cache
-/// - helix: Whether this multibranch is enclosed by a helix
 /// - emap: Map to DNA/RNA energies
-/// - helix: Whether V(i, j) bond with one another in a helix
+/// - helix: Whether this multibranch is enclosed by a helix
 ///
 /// # Returns
 ///
@@ -847,7 +896,7 @@ pub fn multi_branch(
     }
 
     // gather all branches of this multi-branch structure
-    let mut branches = Vec::new();
+    let mut branches = Indices::new();
 
     add_branch((li, lj), seq, temp, cache, emap, &mut branches);
     add_branch((ri, rj), seq, temp, cache, emap, &mut branches);
@@ -934,11 +983,11 @@ pub fn multi_branch(
 
     // penalty for unmatched bp and multi-branch
     let (a, b, c, d) = emap.multibranch;
-    let mut e_multibranch = a + b * branches.len() as f64 + c * unpaired as f64;
-
-    if unpaired == 0 {
-        e_multibranch = a + d;
-    }
+    let e_multibranch = if unpaired == 0 {
+        a + d
+    } else {
+        a + b * branches.len() as f64 + c * unpaired as f64
+    };
 
     // energy of min-energy neighbors
     let e = e_multibranch + e_sum;
@@ -1002,7 +1051,7 @@ pub fn traceback(mut i: usize, mut j: usize, cache: &Values) -> Vec<Value> {
             let last_index = values.len() - 1;
 
             let mut branches = Vec::new();
-            for &(i1, j1) in s_v.ij.iter() {
+            for &(i1, j1) in &s_v.ij {
                 let tb = traceback(i1, j1, cache);
 
                 if let Some(&(i2, j2)) = tb.first().and_then(|v| v.ij.first()) {
@@ -1021,12 +1070,11 @@ pub fn traceback(mut i: usize, mut j: usize, cache: &Values) -> Vec<Value> {
         // there's another single structure beyond this
         if s_v.ij.len() == 1 {
             (i, j) = s_v.ij[0];
-            continue;
+        } else {
+            // it's a hairpin, end of structure
+            // set the energy of everything relative to the hairpin
+            break trackback_energy(&values);
         }
-
-        // it's a hairpin, end of structure
-        // set the energy of everything relative to the hairpin
-        break trackback_energy(&values);
     }
 }
 

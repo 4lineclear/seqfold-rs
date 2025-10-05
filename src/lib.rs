@@ -1,4 +1,17 @@
 #![doc = include_str!("../README.md")]
+#![allow(unsafe_code)]
+// #![deny(
+//     clippy::all,
+//     clippy::pedantic,
+//     // clippy::cargo,
+//     clippy::nursery,
+//     // missing_docs,
+//     // rustdoc::all,
+//     future_incompatible
+// )]
+// #![allow(clippy::must_use_candidate)]
+// #![allow(clippy::missing_panics_doc)]
+// #![allow(clippy::cast_precision_loss)]
 
 mod util;
 
@@ -18,6 +31,8 @@ pub type Cache = Vec<Vec<f64>>;
 pub type MultiBranch = (f64, f64, f64, f64);
 
 use rustc_hash::FxHashMap as HashMap;
+
+// TODO: consider moving from hashmap to phf
 
 #[derive(Debug)]
 pub struct Energies {

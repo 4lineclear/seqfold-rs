@@ -1,10 +1,3 @@
-use std::ops::Deref;
-use std::ops::DerefMut;
-use std::ops::Index;
-use std::ops::IndexMut;
-
-use crate::fold::Value;
-
 #[derive(Debug, Default)]
 pub struct ByteStr<B>(pub B);
 
@@ -37,70 +30,6 @@ impl ToIsize for i32 {
     }
 }
 
-#[derive(Debug)]
-pub struct Matrix<V>(pub V);
-
-impl<V> From<V> for Matrix<V> {
-    fn from(value: V) -> Self {
-        Self(value)
-    }
-}
-
-impl<V> Matrix<V> {
-    fn get(&self, i: usize, j: usize) -> Option<&Value>
-    where
-        V: Deref<Target = Vec<Vec<Value>>>,
-    {
-        self.0.get(i)?.get(j)
-    }
-
-    fn get_mut(&mut self, i: usize, j: usize) -> Option<&mut Value>
-    where
-        V: DerefMut<Target = Vec<Vec<Value>>>,
-    {
-        self.0.get_mut(i)?.get_mut(j)
-    }
-}
-
-// impl<V> Index<usize> for Matrix<V>
-// where
-//     V: Deref<Target = Values>,
-// {
-//     type Output = Vec<Value>;
-//
-//     fn index(&self, i: usize) -> &Self::Output {
-//         self.0.get(i).expect("index out of bounds")
-//     }
-// }
-//
-// impl<V> IndexMut<usize> for Matrix<V>
-// where
-//     V: DerefMut<Target = Values>,
-// {
-//     fn index_mut(&mut self, i: usize) -> &mut Self::Output {
-//         self.0.get_mut(i).expect("index out of bounds")
-//     }
-// }
-
-impl<V> Index<(usize, usize)> for Matrix<V>
-where
-    V: Deref<Target = Vec<Vec<Value>>>,
-{
-    type Output = Value;
-
-    fn index(&self, (i, j): (usize, usize)) -> &Self::Output {
-        self.get(i, j).expect("index out of bounds")
-    }
-}
-
-impl<V> IndexMut<(usize, usize)> for Matrix<V>
-where
-    V: DerefMut<Target = Vec<Vec<Value>>>,
-{
-    fn index_mut(&mut self, (i, j): (usize, usize)) -> &mut Self::Output {
-        self.get_mut(i, j).expect("index out of bounds")
-    }
-}
 /// Round to one decimal
 pub fn round1(n: f64) -> f64 {
     (n * 10.0).round() / 10.0
