@@ -2,7 +2,7 @@
 
 use approx::assert_relative_eq;
 
-use super::Values;
+use super::Context;
 use crate::{dna, fold::Desc, rna};
 
 /// Fold function.
@@ -219,25 +219,25 @@ fn test_w() {
     let i = 0;
     let j = 15;
     let temp = 310.15;
-    let mut cache = Values::new(seq.len());
-    let (i, j) = super::w(seq, i, j, temp, &mut cache, rna());
-    let value = &cache.w[i][j];
+    let mut ctx = Context::new(seq.len());
+    let (i, j) = super::w(seq, i, j, temp, &mut ctx, rna());
+    let value = &ctx.w[i][j];
     assert_relative_eq!(value.e, -3.8, epsilon = 0.2);
 
     let seq = b"CCUGCUUUGCACGCAGG";
     let i = 0;
     let j = 16;
     let temp = 310.15;
-    let mut cache = Values::new(seq.len());
-    let (i, j) = super::w(seq, i, j, temp, &mut cache, rna());
-    let value = &cache.w[i][j];
+    let mut ctx = Context::new(seq.len());
+    let (i, j) = super::w(seq, i, j, temp, &mut ctx, rna());
+    let value = &ctx.w[i][j];
     assert_relative_eq!(value.e, -6.4, epsilon = 0.2);
 
     let seq = b"GCGGUUCGAUCCCGC";
     let i = 0;
     let j = 14;
-    let mut cache = Values::new(seq.len());
-    let (i, j) = super::w(seq, i, j, temp, &mut cache, rna());
-    let value = &cache.w[i][j];
+    let mut ctx = Context::new(seq.len());
+    let (i, j) = super::w(seq, i, j, temp, &mut ctx, rna());
+    let value = &ctx.w[i][j];
     assert_relative_eq!(value.e, -4.2, epsilon = 0.2);
 }

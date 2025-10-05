@@ -1,6 +1,6 @@
 //! Calculate the tm of a DNA sequence
 
-use crate::{Cache, dna, util::round1};
+use crate::{TmCache, dna, util::round1};
 
 #[cfg(test)]
 mod test;
@@ -79,7 +79,7 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
     calc_tm(dh, ds, pcr.unwrap_or(true), gc, seq1.len())
 }
 
-/// Return a TmCache where each (i, j) returns the Tm for that subspan.
+/// Return a [`TmCache`] where each (i, j) returns the Tm for that subspan.
 ///
 /// 1. Build up the 2D matrixes for the tm calculation:
 ///     - dh
@@ -97,9 +97,9 @@ pub fn tm(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> f64 {
 ///
 /// # Returns
 ///
-/// - [`Cache`]: Where querying the cache with (i, j) returns the tm of the
+/// - [`TmCache`]: Where querying the cache with (i, j) returns the tm of the
 ///   subsequence starting with i and ending with j, inclusive
-pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
+pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> TmCache {
     let pcr = pcr.unwrap_or(true);
     let (seq1, seq2) = parse_input(seq1, seq2);
     let n = seq1.len(); // using nearest neighbors, -1
@@ -154,8 +154,8 @@ pub fn tm_cache(seq1: &[u8], seq2: Option<&[u8]>, pcr: Option<bool>) -> Cache {
 ///
 /// # Returns
 ///
-/// - [`Cache`]: A cache for GC ratio lookup
-pub fn gc_cache(seq: &[u8]) -> Cache {
+/// - [`TmCache`]: A cache for GC ratio lookup
+pub fn gc_cache(seq: &[u8]) -> TmCache {
     let n = seq.len();
     let mut arr_gc = vec![vec![f64::INFINITY; n]; n];
 
@@ -183,6 +183,7 @@ pub fn gc_cache(seq: &[u8]) -> Cache {
     }
 
     // convert to ratios
+    #[expect(clippy::needless_range_loop)]
     for i in 0..n {
         for j in i..n {
             arr_gc[i][j] = round1(arr_gc[i][j] / (j - i + 1) as f64);
@@ -203,7 +204,7 @@ pub fn gc_cache(seq: &[u8]) -> Cache {
 ///
 /// # Returns
 ///
-/// - `(Vec<u8>, Vec<u8>)`: The sequences to use for tm calculation
+/// - (Vec<u8>, Vec<u8>): The sequences to use for tm calculation
 pub fn parse_input(seq1: &[u8], seq2: Option<&[u8]>) -> (Vec<u8>, Vec<u8>) {
     let seq1 = seq1.to_ascii_uppercase();
     let seq2 = seq2.map_or_else(

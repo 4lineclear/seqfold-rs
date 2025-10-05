@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    Cache, Energies,
+    Energies, TmCache,
     util::{ByteStr, ToIsize, round1, round2},
 };
 
@@ -99,16 +99,16 @@ impl Value {
 }
 
 /// A map from i, j tuple to a min free energy Struct.
-pub struct Values {
+pub struct Context {
     /// - v_cache: Values of energies where V(i,j) bond
     v: Matrix,
     /// - w_cache: Values of min energy of substructures between W(i,j)
     w: Matrix,
 }
 
-impl Values {
+impl Context {
     pub fn new(n: usize) -> Self {
-        Values {
+        Context {
             v: Matrix::new(n),
             w: Matrix::new(n),
         }
@@ -191,11 +191,11 @@ pub fn fold(seq: &[u8], temp: Option<f64>) -> Vec<Value> {
 
 /// A non-panicing version of [`fold`]
 pub fn try_fold(seq: &[u8], temp: Option<f64>) -> SeqResult<Vec<Value>> {
-    let cache = cache(seq, temp)?;
+    let ctx = cache(seq, temp)?;
     let n = seq.len();
 
     // get the minimum free energy structure out of the cache
-    Ok(traceback(0, n - 1, &cache))
+    Ok(traceback(0, n - 1, &ctx))
 }
 
 /// Fold the sequence and return just the delta G of the structure
@@ -230,12 +230,12 @@ pub fn try_dg(seq: &[u8], temp: Option<f64>) -> SeqResult<f64> {
 ///
 /// - [`Cache`]: A 2D matrix where each (i, j) pairing corresponds to the
 ///   minimum free energy between i and j
-pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> Cache {
+pub fn dg_cache(seq: &[u8], temp: Option<f64>) -> TmCache {
     try_dg_cache(seq, temp).expect("Invalid Sequence Inputted")
 }
 
 /// A non-panicing version of [`dg_cache`]
-pub fn try_dg_cache(seq: &[u8], temp: Option<f64>) -> SeqResult<Cache> {
+pub fn try_dg_cache(seq: &[u8], temp: Option<f64>) -> SeqResult<TmCache> {
     let cache = cache(seq, temp)?;
     Ok((0..cache.w.len)
         .map(|i| cache.w[i].iter().map(|v| v.e).collect())
@@ -276,13 +276,13 @@ pub fn dot_bracket(seq: &[u8], values: &[Value]) -> Vec<u8> {
 /// # Returns
 ///
 /// - [`(Values, Values)`]: The w_cache and the v_cache for traversal later
-pub fn cache(seq: &[u8], temp: Option<f64>) -> SeqResult<Values> {
+pub fn cache(seq: &[u8], temp: Option<f64>) -> SeqResult<Context> {
     let temp = temp.unwrap_or(37.0) + 273.15; // kelvin
 
     let (seq, emap) = parse_sequence(seq)?;
 
     let n = seq.len();
-    let mut cache = Values::new(n);
+    let mut cache = Context::new(n);
     // fill the cache
     w(&seq, 0, n - 1, temp, &mut cache, emap);
     Ok(cache)
@@ -323,7 +323,7 @@ fn parse_sequence(seq: &[u8]) -> SeqResult<(Vec<u8>, &'static Energies)> {
 /// - i: The start index
 /// - j: The end index (inclusive)
 /// - temp: The temperature in Kelvin
-/// - cache: Combined free energy cache
+/// - ctx: Combined free energy cache, etc
 /// - emap: Energy map for DNA/RNA
 ///
 /// # Returns
@@ -334,35 +334,35 @@ pub fn w(
     i: usize,
     j: usize,
     temp: f64,
-    cache: &mut Values,
+    ctx: &mut Context,
     emap: &Energies,
 ) -> (usize, usize) {
-    if cache.w[i][j] != Value::DEFAULT {
+    if ctx.w[i][j] != Value::DEFAULT {
         return (i, j);
     }
 
     if j - i < 4 {
-        cache.w[i][j] = Value::NULL;
+        ctx.w[i][j] = Value::NULL;
         return (i, j);
     }
 
-    let w1 = w(seq, i + 1, j, temp, cache, emap);
-    let w2 = w(seq, i, j - 1, temp, cache, emap);
-    let w3 = v(seq, i, j, temp, cache, emap);
+    let w1 = w(seq, i + 1, j, temp, ctx, emap);
+    let w2 = w(seq, i, j - 1, temp, ctx, emap);
+    let w3 = v(seq, i, j, temp, ctx, emap);
 
     let mut w4 = Value::NULL;
     for k in i + 1..j - 1 {
-        let w4_test = multi_branch(seq, i, k, j, temp, cache, emap, false);
+        let w4_test = multi_branch(seq, i, k, j, temp, ctx, emap, false);
 
         if w4_test.valid() && w4_test.e < w4.e {
             w4 = w4_test;
         }
     }
 
-    cache.w[i][j] = min_value([
-        &cache.w[w1.0][w1.1],
-        &cache.w[w2.0][w2.1],
-        &cache.v[w3.0][w3.1],
+    ctx.w[i][j] = min_value([
+        &ctx.w[w1.0][w1.1],
+        &ctx.w[w2.0][w2.1],
+        &ctx.v[w3.0][w3.1],
         &w4,
     ]);
 
@@ -380,7 +380,7 @@ pub fn w(
 /// - i: The start index
 /// - j: The end index (inclusive)
 /// - temp: The temperature in Kelvin
-/// - cache: Combined free energy cache
+/// - ctx: Combined free energy cache, etc
 /// - emap: Energy map for DNA/RNA
 ///
 /// # Returns
@@ -391,16 +391,16 @@ pub fn v(
     i: usize,
     j: usize,
     temp: f64,
-    cache: &mut Values,
+    ctx: &mut Context,
     emap: &Energies,
 ) -> (usize, usize) {
-    if cache.v[i][j] != Value::DEFAULT {
+    if ctx.v[i][j] != Value::DEFAULT {
         return (i, j);
     }
 
     // the ends must basepair for V(i,j)
     if emap.complement[seq[i]] != seq[j] {
-        cache.v[i][j] = Value::NULL;
+        ctx.v[i][j] = Value::NULL;
         return (i, j);
     }
 
@@ -411,7 +411,7 @@ pub fn v(
     let isolated_inner = emap.complement[seq[i + 1]] != seq[j - 1];
 
     if isolated_outer && isolated_inner {
-        cache.v[i][j] = Value::from(1600.0);
+        ctx.v[i][j] = Value::from(1600.0);
         return (i, j);
     }
 
@@ -420,8 +420,8 @@ pub fn v(
     let e1 = Value::empty(hairpin(seq, i, j, temp, emap), Desc::Hairpin(pair));
     if j - i == 4 {
         // small hairpin; 4bp
-        cache.v[i][j] = e1.clone();
-        cache.w[i][j] = e1;
+        ctx.v[i][j] = e1.clone();
+        ctx.w[i][j] = e1;
         return (i, j);
     }
 
@@ -483,8 +483,8 @@ pub fn v(
                 continue;
             }
 
-            let (i, j) = v(seq, i1, j1, temp, cache, emap);
-            e2_test += cache.v[i][j].e;
+            let (i, j) = v(seq, i1, j1, temp, ctx, emap);
+            e2_test += ctx.v[i][j].e;
             if e2_test != f64::NEG_INFINITY && e2_test < e2.e {
                 e2 = Value::new(e2_test, e2_test_type, vec![(i1, j1)]);
             }
@@ -495,7 +495,7 @@ pub fn v(
     let mut e3 = Value::NULL;
     if isolated_outer || i != 0 || j == seq.len() - 1 {
         for k in i + 1..j - 1 {
-            let e3_test = multi_branch(seq, i, k, j, temp, cache, emap, true);
+            let e3_test = multi_branch(seq, i, k, j, temp, ctx, emap, true);
 
             if e3_test.valid() && e3_test.e < e3.e {
                 e3 = e3_test
@@ -503,7 +503,7 @@ pub fn v(
         }
     }
 
-    cache.v[i][j] = min_value([&e1, &e2, &e3]);
+    ctx.v[i][j] = min_value([&e1, &e2, &e3]);
     (i, j)
 }
 
@@ -550,7 +550,7 @@ pub fn min_value<const N: usize>(values: [&Value; N]) -> Value {
     let mut vt = &Value::NULL;
     for v in values {
         if v.e != f64::NEG_INFINITY && v.e < vt.e {
-            vt = &v;
+            vt = v;
         }
     }
     vt.clone()
@@ -688,14 +688,11 @@ pub fn hairpin(seq: &[u8], i: usize, j: usize, temp: f64, emap: &Energies) -> f6
         return f64::INFINITY;
     }
 
-    let hairpin = &seq[i..j + 1];
+    let hairpin = &seq[i..=j];
     let hairpin_len = hairpin.len() - 2;
     let pair = calc_pair(seq, i, i + 1, j, j - 1);
 
-    if emap.complement[hairpin[0]] != hairpin[hairpin.len() - 1] {
-        // not known terminal pair, nothing to close "hairpin"
-        panic!()
-    }
+    assert_eq!(emap.complement[hairpin[0]], hairpin[hairpin.len() - 1]);
 
     let mut d_g = emap
         .tri_tetra_loops
@@ -761,7 +758,7 @@ pub fn bulge(
 
     // penalize AT terminal bonds
     if [i, i1, j, j1].iter().any(|&k| seq[k] == b'A') {
-        d_g += 0.5
+        d_g += 0.5;
     }
 
     d_g
@@ -837,11 +834,11 @@ pub fn add_branch(
     (i, j): (usize, usize),
     seq: &[u8],
     temp: f64,
-    cache: &mut Values,
+    ctx: &mut Context,
     emap: &Energies,
     branches: &mut Indices,
 ) {
-    let this = &cache.w[i][j];
+    let this = &ctx.w[i][j];
 
     if !this.valid() || this.ij.is_empty() {
         return;
@@ -853,8 +850,8 @@ pub fn add_branch(
     }
 
     for (i1, j1) in this.ij.clone() {
-        let index = w(seq, i1, j1, temp, cache, emap);
-        add_branch(index, seq, temp, cache, emap, branches);
+        let index = w(seq, i1, j1, temp, ctx, emap);
+        add_branch(index, seq, temp, ctx, emap, branches);
     }
 }
 
@@ -870,7 +867,7 @@ pub fn add_branch(
 /// - k: The mid-point in the search
 /// - j: The right ending index
 /// - temp: Folding temp
-/// - cache: Combined free energy cache
+/// - ctx: Combined free energy cache, etc
 /// - emap: Map to DNA/RNA energies
 /// - helix: Whether this multibranch is enclosed by a helix
 ///
@@ -883,23 +880,23 @@ pub fn multi_branch(
     k: usize,
     j: usize,
     temp: f64,
-    cache: &mut Values,
+    ctx: &mut Context,
     emap: &Energies,
     helix: bool,
 ) -> Value {
     let (li, rj) = if helix { (i + 1, j - 1) } else { (i, j) };
-    let (li, lj) = w(seq, li, k, temp, cache, emap);
-    let (ri, rj) = w(seq, k + 1, rj, temp, cache, emap);
+    let (li, lj) = w(seq, li, k, temp, ctx, emap);
+    let (ri, rj) = w(seq, k + 1, rj, temp, ctx, emap);
 
-    if !cache.w[li][lj].valid() || !cache.w[ri][rj].valid() {
+    if !ctx.w[li][lj].valid() || !ctx.w[ri][rj].valid() {
         return Value::NULL;
     }
 
     // gather all branches of this multi-branch structure
     let mut branches = Indices::new();
 
-    add_branch((li, lj), seq, temp, cache, emap, &mut branches);
-    add_branch((ri, rj), seq, temp, cache, emap, &mut branches);
+    add_branch((li, lj), seq, temp, ctx, emap, &mut branches);
+    add_branch((ri, rj), seq, temp, ctx, emap, &mut branches);
 
     // this isn't multi-branched
     if branches.len() < 2 {
@@ -974,8 +971,8 @@ pub fn multi_branch(
 
         if (i2, j2) != (i as isize, j as isize) {
             // add energy
-            let (i, j) = w(seq, i2 as usize, j2 as usize, temp, cache, emap);
-            e_sum += cache.w[i][j].e;
+            let (i, j) = w(seq, i2 as usize, j2 as usize, temp, ctx, emap);
+            e_sum += ctx.w[i][j].e;
         }
     }
 
@@ -1016,31 +1013,27 @@ pub fn multi_branch(
 ///
 /// - i: The leftmost index to start searching in
 /// - j: The rightmost index to start searching in
-/// - cache: Combined free energy cache
+/// - ctx: Combined free energy cache, etc
 ///
 /// # Returns
 ///
 /// - A list of Values in the final secondary structure
-pub fn traceback(mut i: usize, mut j: usize, cache: &Values) -> Vec<Value> {
+pub fn traceback(mut i: usize, mut j: usize, ctx: &Context) -> Vec<Value> {
     // move i,j down-left to start coordinates
-    let s_w = &cache.w[i][j];
+    let s_w = &ctx.w[i][j];
     if !matches!(s_w.desc, Desc::Hairpin(_)) {
-        while &cache.w[i + 1][j] == s_w {
-            i += 1
+        while &ctx.w[i + 1][j] == s_w {
+            i += 1;
         }
-        while &cache.w[i][j - 1] == s_w {
-            j -= 1
+        while &ctx.w[i][j - 1] == s_w {
+            j -= 1;
         }
     }
 
     let mut values = Vec::new();
     loop {
         // multibrach structures are only in the w_cache.
-        let s_v = if s_w.ij.len() > 1 {
-            s_w
-        } else {
-            &cache.v[i][j]
-        };
+        let s_v = if s_w.ij.len() > 1 { s_w } else { &ctx.v[i][j] };
 
         values.push(s_v.clone().with_ij(vec![(i, j)]));
 
@@ -1052,10 +1045,10 @@ pub fn traceback(mut i: usize, mut j: usize, cache: &Values) -> Vec<Value> {
 
             let mut branches = Vec::new();
             for &(i1, j1) in &s_v.ij {
-                let tb = traceback(i1, j1, cache);
+                let tb = traceback(i1, j1, ctx);
 
                 if let Some(&(i2, j2)) = tb.first().and_then(|v| v.ij.first()) {
-                    e_sum += cache.w[i2][j2].e;
+                    e_sum += ctx.w[i2][j2].e;
                     branches.extend(tb);
                 }
             }
